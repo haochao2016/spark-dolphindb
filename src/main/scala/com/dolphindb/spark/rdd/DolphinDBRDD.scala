@@ -154,15 +154,29 @@ object DolphinDBRDD extends Logging {
 
     def typeCol (colName : String, value : Any) : String = {
      val oriType = DolphinDBRDD.originNameToType.get(colName).get
+//      oriType is a type in DolphinDB
       oriType match {
         case "SYMBOL" => s""""${value.toString}""""
+        case "STRING" => s""""${value.toString}""""
         case "DATE" => {
           if (value.toString.contains("-")) value.toString.replace("-", ".")
-//          else if ()
-          else ""
-//          value.toString.substring(0, 4) + "." + value.toString.substring(4,6) + "." +
-//            value.toString.substring(6)
+          else value.toString
         }
+        case "MONTH" => {
+          if (value.toString.contains("-")) { value.toString.substring(0, value.toString.lastIndexOf("-"))
+            .replace("-", ".") + "M" }
+          else value.toString
+        }
+        case "TIME" => value.toString.split(" ")(1)
+        case "MINUTE" => {
+          val minute = value.toString.split(" ")(1)
+          minute.substring(0, minute.lastIndexOf(":")) + "m"
+        }
+        case "SECOND" => value.toString.split(" ")(1)
+        case "DATETIME" => value.toString
+        case "TIMESTAMP" => value.toString
+        case "NANOTIME" => value.toString.split(" ")(1)
+        case "NANOTIMESTAMP" => value.toString
         case "CHAR" => value.toString.charAt(0).toByte.toString
         case _ => value.toString
       }
@@ -179,9 +193,6 @@ object DolphinDBRDD extends Logging {
       case StringStartsWith(attr, value) => s" ${attr} like '${value}%' "
       case StringEndsWith(attr, value) => s" ${attr} like '%${value}' "
       case StringContains(attr, value) => s" ${attr} like '%${value}%' "
-//      case In(attr, value) if value.isEmpty => {
-//
-//       }
       case In(attr, value) =>  s"${attr} in (${value})"
       case Not(f) => compilerFilter(f).map(p => s" not($p) ").get
       case Or(f1, f2) =>
@@ -262,10 +273,10 @@ private[spark] class DolphinDBRDD(
     * A WHERE clause representing both `filters`, if any, and the current partition.
     */
   private val filterWhereClause : String = {
-    val ad = filters.flatMap(DolphinDBRDD.compilerFilter(_))
+    val filter = filters.flatMap(DolphinDBRDD.compilerFilter(_))
       .map(x => s"$x").mkString(" and ")
-    println(   "  AD   "     +ad)
-    ad
+    println(   "  filter   "     + filter)
+    filter
   }
 
   private def getWhereClause(part : DolphinDBPartition) :String = {
