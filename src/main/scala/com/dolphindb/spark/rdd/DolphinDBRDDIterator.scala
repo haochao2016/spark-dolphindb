@@ -89,7 +89,6 @@ class DolphinDBRDDIterator(
     }
     case StringType => fieldVal.toString
     case IntegerType => fieldVal.toInt
-    case TimestampType => Timestamp.valueOf(fieldVal.replace("T" ," "))
     case NullType => null
     case BooleanType => if (fieldVal.equals("0") || fieldVal.toLowerCase().equals("false")) false else true
     case DoubleType => fieldVal.toDouble
