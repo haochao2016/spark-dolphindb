@@ -8,3 +8,6 @@ class DolphinDBException (msg : String) extends RuntimeException (msg : String){
 
  class NoDataBaseException (msg : String) extends DolphinDBException  (msg : String){
 }
+
+class NoTableException (msg : String) extends DolphinDBException  (msg : String){
+ }

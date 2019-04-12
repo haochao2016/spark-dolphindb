@@ -19,3 +19,5 @@ libraryDependencies += "mysql" % "mysql-connector-java" % "5.1.47"
 libraryDependencies += "org.apache.hadoop" % "hadoop-common" % "2.9.0"
 
 libraryDependencies += "com.sequoiadb" % "spark-sequoiadb_2.11" % "2.8.0"
+
+libraryDependencies += "com.sequoiadb" % "hadoop-sequoiadb" % "1.12"

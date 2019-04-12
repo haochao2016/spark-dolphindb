@@ -84,13 +84,16 @@ case class DolphinDBRelation (
     * @param overwrite Whether the table is overwriten
     */
   override def insert(data: DataFrame, overwrite: Boolean): Unit = {
+    /**
+      * Get the DataFrame schema
+      */
     val schema = data.schema
     if (overwrite) {
 
     }
 
     data.foreachPartition(dataPart => {
-      new DolphinDBWriter(options).save(dataPart, schema)
+//      new DolphinDBWriter(options).save(dataPart, schema)
     })
 
   }
