@@ -275,7 +275,6 @@ private[spark] class DolphinDBRDD(
   private val filterWhereClause : String = {
     val filter = filters.flatMap(DolphinDBRDD.compilerFilter(_))
       .map(x => s"$x").mkString(" and ")
-    println(   "  filter   "     + filter)
     filter
   }
 

@@ -90,7 +90,6 @@ object DolphinDBUtils extends Logging{
   def getDolphinDBSchema(conn: DBConnection, dBOptions: DolphinDBOptions) : Array[(String, String)] = {
     val table = dBOptions.table
     val schemaTB = conn.run(s"schema(${table}).colDefs").asInstanceOf[BasicTable]
-//    val dolphinDBName2Type = new mutable.HashMap[String, String]()
     val dolphinDBName2Type = new ArrayBuffer[(String, String)]()
     for (i <- 0 until(schemaTB.rows())) {
       dolphinDBName2Type += (schemaTB.getColumn(0).get(i).toString ->
@@ -98,11 +97,5 @@ object DolphinDBUtils extends Logging{
     }
     dolphinDBName2Type.toArray
   }
-
-
-
-
-
-
 
 }
