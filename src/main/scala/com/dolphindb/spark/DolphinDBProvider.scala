@@ -19,22 +19,22 @@ class DolphinDBProvider extends RelationProvider
     import com.dolphindb.spark.schema.DolphinDBOptions._
 
     val dolphinDBOptions = new DolphinDBOptions(parameters)
-    val partitionColumn = dolphinDBOptions.partitionColumn
-    val numPartitions = dolphinDBOptions.numPartitions
 
-    val partitionInfo = if (partitionColumn.isEmpty) {
-      assert(partitionColumn.isEmpty, "When 'partitionColumn' is not specified, " +
-        s"'$DolphinDB_NUM_PARTITIONS' are expected to be empty")
-      null
-    } else {
-      assert(numPartitions.nonEmpty,  s"When 'partitionColumn' is specified, '$DolphinDB_PARTITION_COLUMN' are also required")
-      DolphinDBPartitioningInfo(partitionColumn.get, numPartitions.get)
-    }
-    val parts = DolphinDBRelation.columnPartition(partitionInfo)
+//    val partitionColumn = dolphinDBOptions.partitionColumn
+//    val numPartitions = dolphinDBOptions.numPartitions
+//
+//    val partitionInfo = if (partitionColumn.isEmpty) {
+//      assert(partitionColumn.isEmpty, "When 'partitionColumn' is not specified, " +
+//        s"'$DolphinDB_NUM_PARTITIONS' are expected to be empty")
+//      null
+//    } else {
+//      assert(numPartitions.nonEmpty,  s"When 'partitionColumn' is specified, '$DolphinDB_PARTITION_COLUMN' are also required")
+//      DolphinDBPartitioningInfo(partitionColumn.get, numPartitions.get)
+//    }
+//    val parts = DolphinDBRelation.columnPartition(partitionInfo)
 
-    DolphinDBRelation(parts , dolphinDBOptions)(sqlContext.sparkSession)
+    DolphinDBRelation(dolphinDBOptions)(sqlContext.sparkSession)
   }
-
 
   /**
     * Save a DataFrame to DolphinDB table
@@ -49,7 +49,6 @@ class DolphinDBProvider extends RelationProvider
     val dBOptions = new DolphinDBOptions(parameters)
     val conn = DolphinDBUtils.createDolphinDBConn(dBOptions)
     val dataFields = data.schema.fields
-
     /**
       *  Judgment DolphinDB table exists
       */

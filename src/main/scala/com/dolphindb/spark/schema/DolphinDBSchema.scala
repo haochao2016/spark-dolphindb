@@ -2,14 +2,65 @@ package com.dolphindb.spark.schema
 
 import java.util
 
+import com.xxdb.DBConnection
 import com.xxdb.data._
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.types._
 
+import scala.collection.mutable
+import scala.collection.mutable.ArrayBuffer
+
 object DolphinDBSchema extends Logging{
 
   /**
+    * Get All DolphinDB DataNode Address
+    * @param conn
+    * @param option
+    */
+  def getAllDdataNodeAddr(conn : DBConnection, option: DolphinDBOptions) = {
+    val vector = conn.run(s"ctl = getControllerAlias();" +
+            s"  exec site from rpc(ctl,getClusterPerf) where mode = 0").asInstanceOf[BasicStringVector]
+    val addrBuffer = new mutable.HashMap[String, ArrayBuffer[Int]]()
+    for (i <- 0 until(vector.rows())) {
+      val addr = vector.get(i).toString.split(":")
+      val ports = addrBuffer.getOrElse(addr(0), new ArrayBuffer[Int]())
+      ports += addr(1).toInt
+    }
+    addrBuffer
+  }
+
+  /**
+    * Get DolphinDB Partition Values
+    *
+    * @param conn
+    * @param option
+    * @return
+    */
+  def getPartitionVals(conn: DBConnection, option: DolphinDBOptions): Vector = {
+    val table = option.table
+    val dbPath = option.dbPath
+    val vector = conn.run(s"schema($table).partitionSchema").asInstanceOf[Vector]
+    vector
+  }
+
+  /**
+    * Get partition columns from  the DolphinDB Partition table.
+    *
+    * @param option DolphinDBOptions
+    * @return
+    */
+  def getPartitionColumns(conn : DBConnection, option: DolphinDBOptions) : Array[String] = {
+    val table = option.table
+    val dbPath = option.dbPath
+    val partiCols = conn.run(s"${table}=database('${dbPath}').loadTable('${table}'); schema(${table}).partitionColumnName")
+        .asInstanceOf[BasicString]
+    Array(partiCols.getString)
+  }
+
+
+  /**
     * Convert DolphinDB DataType to Spark DataType
+    *
     * @param originName dataName
     * @param originType dataType in DolphinDB
     * @return
@@ -39,7 +90,6 @@ object DolphinDBSchema extends Logging{
     case "SHORT" => StructField(originName, ShortType)
     case "CHAR" => StructField(originName, ByteType)
     case _ => StructField(originName, StringType)
-
   }
 
   /**
@@ -88,8 +138,6 @@ object DolphinDBSchema extends Logging{
         }
         vectors.add(new BasicByteVector(Array[Byte](value.charAt(0).toByte)))
       }
-
-
     }
   }
 

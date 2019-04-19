@@ -2,6 +2,7 @@ package com.dolphindb.spark.rdd
 
 
 import com.dolphindb.spark.exception.NoDataBaseException
+import com.dolphindb.spark.partition.DolphinDBPartition
 import com.dolphindb.spark.schema.{DolphinDBDialects, DolphinDBOptions, DolphinDBSchema}
 import com.xxdb.DBConnection
 import com.xxdb.data.BasicTable
@@ -20,9 +21,9 @@ import scala.collection.mutable.ArrayBuffer
   * @param whereClause
   * @param idx
   */
-case class DolphinDBPartition(whereClause: String, idx: Int) extends Partition {
-  override def index: Int = idx
-}
+//case class DolphinDBPartition(whereClause: String, idx: Int) extends Partition {
+//  override def index: Int = idx
+//}
 
 object DolphinDBRDD extends Logging {
 
@@ -280,15 +281,16 @@ private[spark] class DolphinDBRDD(
 
   private def getWhereClause(part : DolphinDBPartition) :String = {
 
-    if (part.whereClause != null && filterWhereClause.length > 0) {
-      " where " + s"($filterWhereClause)" + " and " + s"(${part.whereClause})"
-    } else if (part.whereClause != null) {
-      "where " + part.whereClause
-    } else if (filterWhereClause.length > 0) {
-      "where " + filterWhereClause
-    } else {
-      ""
-    }
+//    if (part.whereClause != null && filterWhereClause.length > 0) {
+//      " where " + s"($filterWhereClause)" + " and " + s"(${part.whereClause})"
+//    } else if (part.whereClause != null) {
+//      "where " + part.whereClause
+//    } else if (filterWhereClause.length > 0) {
+//      "where " + filterWhereClause
+//    } else {
+//      ""
+//    }
+    ""
   }
 
   /**
@@ -310,7 +312,15 @@ private[spark] class DolphinDBRDD(
     context.addTaskCompletionListener(context => close())
 
     val inputMetrics = context.taskMetrics().inputMetrics
+    /**
+      * 新的分区要嵌入到SQL中
+      * 此处要链接查询dolhinDB datanode 的地址，从而实现很多的节点加载，
+      * 而不是只在一个数据节点上，从多个节点查询数据
+      */
     val part = parts.asInstanceOf[DolphinDBPartition]
+    val hosts = part.hosts
+
+
     conn = new DBConnection
     conn.connect(ip, port ,user, password)
 

@@ -1,12 +1,10 @@
 package com.dolphindb.spark.writer
 
-import java.sql.Date
 import java.time.{LocalDate, LocalDateTime, LocalTime}
 import java.util
 
 import com.dolphindb.spark.DolphinDBUtils
 import com.dolphindb.spark.schema.DolphinDBOptions
-import com.xxdb.DBConnection
 import com.xxdb.data._
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.Row
@@ -15,11 +13,6 @@ import scala.collection.mutable.ArrayBuffer
 
 class DolphinDBWriter(options: DolphinDBOptions) extends Logging{
 
-//  protected val conn = new DBConnection
-  private val ip = options.ip.get
-  private val port = options.port.get.toInt
-  private val user = options.user.get
-  private val password = options.password.get
   private val dbPath = options.dbPath
   private val table = options.table
   val conn = DolphinDBUtils.createDolphinDBConn(options)
