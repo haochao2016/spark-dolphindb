@@ -121,6 +121,7 @@ object DolphinDBRDD extends Logging {
       * */
       val StructArr = new ArrayBuffer[StructField]()
 
+      //Only one dfs path
       if (tbPathTupArr.length == 1) {
         logInfo(s"Get the ${tbPathTupArr(0)._2} Schema ")
         schemaDB = conn.run(s"schema(${tbPathTupArr(0)._2}).colDefs").asInstanceOf[BasicTable]
@@ -197,11 +198,11 @@ object DolphinDBRDD extends Logging {
       case In(attr, value) =>  s"${attr} in (${value})"
       case Not(f) => compilerFilter(f).map(p => s" not($p) ").get
       case Or(f1, f2) =>
-        val or = Seq(f1, f2).flatMap(compilerFilter(_))
-        or.map(p => s" (${p}) ").mkString(" or ")
+        val orf = Seq(f1, f2).flatMap(compilerFilter(_))
+        orf.map(p => s" (${p}) ").mkString(" or ")
       case And(f1, f2) =>
-        val and = Seq(f1, f2).flatMap(compilerFilter(_))
-        and.map(p => s"${p}").mkString(" and ")
+        val andf = Seq(f1, f2).flatMap(compilerFilter(_))
+        andf.map(p => s"${p}").mkString(" and ")
       case _ => null
      }
     )
