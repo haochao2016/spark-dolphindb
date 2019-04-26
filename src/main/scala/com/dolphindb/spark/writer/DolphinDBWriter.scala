@@ -19,7 +19,7 @@ class DolphinDBWriter(options: DolphinDBOptions) extends Logging{
 
   /**
     *  Save Spark DataFrame into DolphinDB
-    * @param it
+    * @param it  Iterator[Row]
     * @param name2Type  dolphinDB table schema ,
     *  example:
     * {{{

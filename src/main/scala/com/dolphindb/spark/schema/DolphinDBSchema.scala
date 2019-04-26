@@ -53,8 +53,17 @@ object DolphinDBSchema extends Logging{
     val table = option.table
     val dbPath = option.dbPath
     val partiCols = conn.run(s"${table}=database('${dbPath}').loadTable('${table}'); schema(${table}).partitionColumnName")
-        .asInstanceOf[BasicString]
-    Array(partiCols.getString)
+    if (partiCols.isInstanceOf[BasicStringVector]) {
+      val vectorCol = partiCols.asInstanceOf[BasicStringVector]
+      val vectorBuf = new ArrayBuffer[String]()
+      for (i <- 0 until(vectorCol.rows())) {
+        vectorBuf += vectorCol.getString(i)
+      }
+      vectorBuf.toArray
+    } else {
+      Array(partiCols.asInstanceOf[BasicString].getString)
+    }
+
   }
 
 
