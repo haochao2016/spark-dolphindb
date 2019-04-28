@@ -1,6 +1,8 @@
 package com.dolphindb.spark.rdd
 
 
+import java.net.InetAddress
+
 import com.dolphindb.spark.exception.NoDataBaseException
 import com.dolphindb.spark.partition.DolphinDBPartition
 import com.dolphindb.spark.schema.{DolphinDBDialects, DolphinDBOptions, DolphinDBSchema}
@@ -15,6 +17,7 @@ import org.apache.spark.{Partition, SparkContext, TaskContext}
 
 import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
+import scala.util.Random
 
 /**
   * Data corresponding to one partition of a DolphinDBRDD.
@@ -280,22 +283,35 @@ private[spark] class DolphinDBRDD(
     filter
   }
 
+  /**
+    * Get query conditions for DolphinDB
+    * @param part  DolphinDbPartition
+    * @return
+    */
   private def getWhereClause(part : DolphinDBPartition) :String = {
-
-//    if (part.whereClause != null && filterWhereClause.length > 0) {
-//      " where " + s"($filterWhereClause)" + " and " + s"(${part.whereClause})"
-//    } else if (part.whereClause != null) {
-//      "where " + part.whereClause
-//    } else if (filterWhereClause.length > 0) {
-//      "where " + filterWhereClause
-//    } else {
-//      ""
-//    }
-    ""
+    if (part.partiCols != null && filterWhereClause.length > 0) {
+      val partCondition = new mutable.StringBuilder()
+      for (i <- 0 until(part.partiCols.length)) {
+        partCondition.append(part.partiCols(i) + " = ")
+        partCondition.append(part.partiVals(i) + " and ")
+      }
+      " where " + partCondition.toString + s"($filterWhereClause)"
+    } else if (part.partiCols != null) {
+      val partCondition = new mutable.StringBuilder()
+      for (i <- 0 until(part.partiCols.length)) {
+        partCondition.append(part.partiCols(i) + " = ")
+        partCondition.append(part.partiVals(i) + " and ")
+      }
+      "where " + partCondition.substring(0, partCondition.lastIndexOf("and"))
+    } else if (filterWhereClause.length > 0) {
+      "where " + filterWhereClause
+    } else {
+      ""
+    }
   }
 
   /**
-    * Runs the SQL query against the JDBC driver.
+    * Runs the SQL query on DolphinDB Java-api driver.
     */
   override def compute(parts: Partition, context: TaskContext): Iterator[Row] = {
     var closed = false
@@ -318,12 +334,19 @@ private[spark] class DolphinDBRDD(
       * 此处要链接查询dolhinDB datanode 的地址，从而实现很多的节点加载，
       * 而不是只在一个数据节点上，从多个节点查询数据
       */
+
     val part = parts.asInstanceOf[DolphinDBPartition]
     val hosts = part.hosts
-
-
-    conn = new DBConnection
-    conn.connect(ip, port ,user, password)
+    val hostAddress = InetAddress.getLocalHost.getHostAddress
+    if (part.hosts.contains(hostAddress)) {
+      val ports = part.hosts.get(hostAddress).get
+      conn.connect(hostAddress, ports(Random.nextInt(ports.size)) ,user, password)
+    } else {
+      val keyArr = part.hosts.keySet.toArray
+      val newHost = keyArr(Random.nextInt(keyArr.length))
+      val ports = part.hosts.get(newHost).get
+      conn.connect(newHost, ports(Random.nextInt(ports.size)) ,user, password)
+    }
 
     /**
       * load Table
@@ -348,7 +371,6 @@ private[spark] class DolphinDBRDD(
       schema,
       dolphinDBTable
     )
-
 
   }
 
