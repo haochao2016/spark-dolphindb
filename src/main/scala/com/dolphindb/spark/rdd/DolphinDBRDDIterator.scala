@@ -74,16 +74,37 @@ class DolphinDBRDDIterator(
         case "SECOND" =>
           Timestamp.valueOf("1970-01-01 " + fieldVal.toString)
         case "DATETIME" =>
-          if (fieldVal.contains("T")) Timestamp.valueOf(fieldVal.replace("T", " "))
-          else Timestamp.valueOf(fieldVal.toString)
+          var fieldDTVal : String = null
+          if (fieldVal.contains("T")) {
+            fieldDTVal = fieldVal.split("T")(0).replace(".", "-") +
+                " " + fieldVal.split("T")(1)
+          } else {
+            fieldDTVal = fieldVal.split(" ")(0).replace(".", "-") +
+              " " + fieldVal.split(" ")(1)
+          }
+          Timestamp.valueOf(fieldDTVal)
         case "TIMESTAMP" =>
-          if (fieldVal.contains("T")) Timestamp.valueOf(fieldVal.replace("T", " "))
-          else Timestamp.valueOf(fieldVal.toString)
+          var fieldTMVal : String = null
+          if (fieldVal.contains("T")) {
+            fieldTMVal = fieldVal.split("T")(0).replace(".", "-") +
+              " " + fieldVal.split("T")(1)
+          } else {
+            fieldTMVal = fieldVal.split(" ")(0).replace(".", "-") +
+              " " + fieldVal.split(" ")(1)
+          }
+          Timestamp.valueOf(fieldTMVal)
         case "NANOTIME" =>
           Timestamp.valueOf("1970-01-01 " + fieldVal.toString)
         case "NANOTIMESTAMP" =>
-          if (fieldVal.contains("T")) Timestamp.valueOf(fieldVal.replace("T", " "))
-          else Timestamp.valueOf(fieldVal.toString)
+          var fieldNTMVal : String = null
+          if (fieldVal.contains("T")) {
+            fieldNTMVal = fieldVal.split("T")(0).replace(".", "-") +
+              " " + fieldVal.split("T")(1)
+          } else {
+            fieldNTMVal = fieldVal.split(" ")(0).replace(".", "-") +
+              " " + fieldVal.split(" ")(1)
+          }
+          Timestamp.valueOf(fieldNTMVal)
         case _ => fieldVal
       }
     }
