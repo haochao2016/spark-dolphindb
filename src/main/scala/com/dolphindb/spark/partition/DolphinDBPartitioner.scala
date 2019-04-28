@@ -24,6 +24,10 @@ case class DolphinDBPartitioner(option: DolphinDBOptions) extends Serializable {
     conn.connect(option.ip.get, option.port.get.toInt, option.user.get, option.password.get)
     
     val partiCols : Array[String] = DolphinDBSchema.getPartitionColumns(conn, option)
+    if (partiCols.length == 0) {
+      partitions += new DolphinDBPartition(0, null, null,null)
+      return partitions.toArray
+    }
     val partiVals : Vector = DolphinDBSchema.getPartitionVals(conn,option)
     val addrs : mutable.HashMap[String, ArrayBuffer[Int]] = DolphinDBSchema.getAllDdataNodeAddr(conn, option)
     conn.close()
