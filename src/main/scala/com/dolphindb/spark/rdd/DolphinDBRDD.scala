@@ -198,7 +198,7 @@ object DolphinDBRDD extends Logging {
       case StringStartsWith(attr, value) => s" ${attr} like '${value}%' "
       case StringEndsWith(attr, value) => s" ${attr} like '%${value}' "
       case StringContains(attr, value) => s" ${attr} like '%${value}%' "
-      case In(attr, value) =>  s"${attr} in (${value})"
+      case In(attr, value) =>  s"""${attr} in (${value.map(v => typeCol(attr, v)).mkString(",")})"""
       case Not(f) => compilerFilter(f).map(p => s" not($p) ").get
       case Or(f1, f2) =>
         val orf = Seq(f1, f2).flatMap(compilerFilter(_))
@@ -338,14 +338,21 @@ private[spark] class DolphinDBRDD(
     val part = parts.asInstanceOf[DolphinDBPartition]
     val hosts = part.hosts
     val hostAddress = InetAddress.getLocalHost.getHostAddress
-    if (part.hosts.contains(hostAddress)) {
+    if (part.partiCols == null|| part.partiCols.length == 0) {
+      conn.connect(ip, port,user, password)
+    } else if (part.hosts.contains(hostAddress)) {
       val ports = part.hosts.get(hostAddress).get
       conn.connect(hostAddress, ports(Random.nextInt(ports.size)) ,user, password)
     } else {
       val keyArr = part.hosts.keySet.toArray
       val newHost = keyArr(Random.nextInt(keyArr.length))
-      val ports = part.hosts.get(newHost).get
-      conn.connect(newHost, ports(Random.nextInt(ports.size)) ,user, password)
+      if (newHost.contains(ip.substring(0, ip.lastIndexOf(".")))) {
+        /**  n the same network segment    */
+        val ports = part.hosts.get(newHost).get
+        conn.connect(newHost, ports(Random.nextInt(ports.size)) ,user, password)
+      } else {
+        conn.connect(ip, port,user, password)
+      }
     }
 
     /**

@@ -25,6 +25,13 @@ object DolphinDBSchema extends Logging{
       val addr = vector.get(i).toString.split(":")
       val ports = addrBuffer.getOrElse(addr(0), new ArrayBuffer[Int]())
       ports += addr(1).toInt
+      addrBuffer.put(addr(0), ports)
+//      val ports = if (addrBuffer.contains(addr(0))) {addrBuffer.get(addr(0)).asInstanceOf[ArrayBuffer[Int]]} else {
+//        val portBuf = new ArrayBuffer[Int]()
+//        addrBuffer += (addr(0) -> portBuf)
+//        portBuf
+//      }
+//      ports += addr(1).toInt
     }
     addrBuffer
   }
@@ -53,6 +60,9 @@ object DolphinDBSchema extends Logging{
     val table = option.table
     val dbPath = option.dbPath
     val partiCols = conn.run(s"${table}=database('${dbPath}').loadTable('${table}'); schema(${table}).partitionColumnName")
+    if (partiCols.isInstanceOf[com.xxdb.data.Void]) {
+      return Array[String]()
+    }
     if (partiCols.isInstanceOf[BasicStringVector]) {
       val vectorCol = partiCols.asInstanceOf[BasicStringVector]
       val vectorBuf = new ArrayBuffer[String]()
