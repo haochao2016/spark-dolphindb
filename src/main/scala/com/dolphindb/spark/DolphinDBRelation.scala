@@ -1,23 +1,21 @@
 package com.dolphindb.spark
 
-import com.dolphindb.spark.partition.{DolphinDBPartition, DolphinDBPartitioner}
+import com.dolphindb.spark.partition.{ DolphinDBPartitioner}
 import com.dolphindb.spark.rdd.DolphinDBRDD
 import com.dolphindb.spark.schema.DolphinDBOptions
-import org.apache.spark.Partition
 import org.apache.spark.internal.Logging
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.{DataFrame, Row, SQLContext, SparkSession}
 import org.apache.spark.sql.sources.{BaseRelation, Filter, InsertableRelation, PrunedFilteredScan}
 import org.apache.spark.sql.types.StructType
 
-import scala.collection.mutable.ArrayBuffer
 
 /**
   * Instructions on how to partition the table among workers.
   */
-private[spark] case class DolphinDBPartitioningInfo(
-            column: String,
-            numPartitions: Int)
+//private[spark] case class DolphinDBPartitioningInfo(
+//            column: String,
+//            numPartitions: Int)
 
 private [spark] object DolphinDBRelation extends Logging {
 
