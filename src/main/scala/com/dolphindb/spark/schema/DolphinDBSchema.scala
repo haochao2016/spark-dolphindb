@@ -13,7 +13,37 @@ import scala.collection.mutable.ArrayBuffer
 object DolphinDBSchema extends Logging{
 
   /**
+    *  Get DolphinDB partition table type
+    *  0 = Seq Partition
+    *  1 = Value Partition
+    *  2 = Range Partition
+    *  3 = List Partition
+    *  4 = Compo Partition
+    *  5 = Hash Partition
+    * @param conn
+    * @param option
+    */
+  def getPartitionType(conn: DBConnection, option: DolphinDBOptions) :Array[Int] = {
+    val table = option.table
+    val vector = conn.run(s"schema($table).partitionType")//.asInstanceOf[BasicStringVector]
+    if (vector.isInstanceOf[BasicIntVector]) {
+      val typeBuf = new ArrayBuffer[Int]()
+      val tyArr = vector.asInstanceOf[BasicIntVector]
+      for(i <- 0 until(tyArr.rows())) {
+        typeBuf += tyArr.getInt(i)
+      }
+      typeBuf.toArray
+    } else if (vector.isInstanceOf[BasicInt]) {
+      val ty = vector.asInstanceOf[BasicInt]
+      Array[Int](ty.getInt)
+    } else {
+      Array[Int]()
+    }
+  }
+
+  /**
     * Get All DolphinDB DataNode Address
+    *
     * @param conn
     * @param option
     */
@@ -26,12 +56,6 @@ object DolphinDBSchema extends Logging{
       val ports = addrBuffer.getOrElse(addr(0), new ArrayBuffer[Int]())
       ports += addr(1).toInt
       addrBuffer.put(addr(0), ports)
-//      val ports = if (addrBuffer.contains(addr(0))) {addrBuffer.get(addr(0)).asInstanceOf[ArrayBuffer[Int]]} else {
-//        val portBuf = new ArrayBuffer[Int]()
-//        addrBuffer += (addr(0) -> portBuf)
-//        portBuf
-//      }
-//      ports += addr(1).toInt
     }
     addrBuffer
   }
@@ -73,9 +97,7 @@ object DolphinDBSchema extends Logging{
     } else {
       Array(partiCols.asInstanceOf[BasicString].getString)
     }
-
   }
-
 
   /**
     * Convert DolphinDB DataType to Spark DataType

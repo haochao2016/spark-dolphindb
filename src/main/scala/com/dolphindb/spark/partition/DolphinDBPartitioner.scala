@@ -25,9 +25,11 @@ case class DolphinDBPartitioner(option: DolphinDBOptions) extends Serializable {
     
     val partiCols : Array[String] = DolphinDBSchema.getPartitionColumns(conn, option)
     if (partiCols.length == 0) {
-      partitions += new DolphinDBPartition(0, null, null,null)
+      partitions += new DolphinDBPartition(0, null, null, null,null)
       return partitions.toArray
     }
+
+    val partiType : Array[Int] = DolphinDBSchema.getPartitionType(conn, option)
     val partiVals : Vector = DolphinDBSchema.getPartitionVals(conn,option)
     val addrs : mutable.HashMap[String, ArrayBuffer[Int]] = DolphinDBSchema.getAllDdataNodeAddr(conn, option)
     conn.close()
@@ -49,66 +51,124 @@ case class DolphinDBPartitioner(option: DolphinDBOptions) extends Serializable {
       *  if partiFilters.length==0 ,need add all DolphinDB partition into spark partition.
       *  if not , need select the appropriate partitions.
       **/
-    var partiValArr = new ArrayBuffer[ArrayBuffer[String]]()  // Contains all partition value in Spark
+    var partiValArr = new ArrayBuffer[ArrayBuffer[Array[String]]]()  // Contains all partition value in Spark
+//    var partiValArr = new ArrayBuffer[ArrayBuffer[String]]()  // Contains all partition value in Spark
       /** There are multiple partitions in DolphinDB table */
-    if (partiVals.isInstanceOf[BasicAnyVector] && partiCols.length > 1) {
+    if (/*partiVals.isInstanceOf[BasicAnyVector] &&*/ partiCols.length > 1) {
       val partiVector = partiVals.asInstanceOf[BasicAnyVector]
 
       for (i <- 0 until(partiVector.rows())) {
-        val tmpPartiVal = new ArrayBuffer[ArrayBuffer[String]]()
+        val tmpPartiVal = new ArrayBuffer[ArrayBuffer[Array[String]]]()
         val vector = partiVector.getEntity(i).asInstanceOf[Vector]
         for (j <- 0 until(vector.rows())) {
-          /**  i = 0 means the first level partition in DolphinDB   */
-          if (i == 0) {
-            /** There are partition filter in User-defined SQL   */
-            if (partiFilters.length != 0 && getDolphinDBPartitionBySingleFilter(partiCols(i),
-                  vector.get(j).toString, partiFilters.toArray)) {
-              partiValArr += ArrayBuffer[String](vector.get(j).toString)
+          val vecBuf = new ArrayBuffer[String]()
+
+          /**  There is a partition type of 3 , 3 represent List partition   */
+          if (vector.isInstanceOf[BasicAnyVector] && partiType(i) == 3) {
+            val vectorAny = vector.asInstanceOf[BasicAnyVector]
+            if (vectorAny.getEntity(j).isInstanceOf[Vector] ) {
+              val vectorVals = vectorAny.getEntity(j).asInstanceOf[Vector]
+              for (k <- 0 until(vectorVals.rows())) {
+                vecBuf += vectorVals.get(k).toString
+              }
+            } else {   /**  there is a scalar value in List partition's BasicAnyVector  */
+              vecBuf += vectorAny.get(j).toString
+            }
+          } else if (partiType(i) == 2){  /**  There is a partition type of 2 , 2 = Range partition    */
+            if (j != vector.rows() - 1) {
+              vecBuf += vector.get(j).toString
+              vecBuf += vector.get(j+1).toString
             } else {
-            /**    There are not partition filter in User-defined SQL */
-              partiValArr += ArrayBuffer[String](vector.get(j).toString)
+              vecBuf += vector.get(j).toString
+              vecBuf += vector.get(j).toString
             }
           } else {
+            vecBuf += vector.get(j).toString
+          }
+
+
+          /**  i = 0 means the first level partition in DolphinDB   */
+          if (i == 0) {
+
+            /** There are partition filter in User-defined SQL   */
+            if (partiFilters.length != 0 && getDolphinDBPartitionBySingleFilter(partiCols(i),
+              vecBuf.toArray, partiType(i),partiFilters.toArray)) {
+              partiValArr += ArrayBuffer[Array[String]](vecBuf.toArray)
+            } else {
+            /**  There are not partition filter in User-defined SQL */
+              partiValArr += ArrayBuffer[Array[String]](vecBuf.toArray)
+            }
+          } else {
+
             /**  means not the first level partition in DolphinDB */
             var addPartFlag = true
             /** There are partition filter in User-defined SQL   */
             if (!(partiFilters.length != 0 && getDolphinDBPartitionBySingleFilter(partiCols(i),
-              vector.get(j).toString, partiFilters.toArray))){
+              vecBuf.toArray, partiType(i), partiFilters.toArray))){
               addPartFlag = false
             }
             if (addPartFlag) {
               for (pv <- 0 until (partiValArr.size)) {
-                val tmpBuf = new ArrayBuffer[String]()
+                val tmpBuf = new ArrayBuffer[Array[String]]()
                 partiValArr(pv).copyToBuffer(tmpBuf)
-                tmpBuf += vector.get(j).toString
+                tmpBuf += vecBuf.toArray
                 tmpPartiVal += tmpBuf
               }
             }
           }
+
         }
         partiValArr = tmpPartiVal
         tmpPartiVal.clear()
       }
     } else {
-      /**  There is only one partition in DolphinDB table. */
+      /** There is only one partition in DolphinDB table. */
       /////////////////////////////////////////////////////////
-      /**  There are not partition filter in User-defined SQL */
-        for (pi <- 0 until(partiVals.rows())) {
+      /** There are not partition filter in User-defined SQL */
+
+        for (pi <- 0 until (partiVals.rows())) {
           var addPartFlag = true
-          /**  There are partition filter in User-defined SQL, So filter partition  */
+          val partiBuf = new ArrayBuffer[String]()
+          /**  partitionType = 3 stands for list partition
+            *  if [[12,34],[12,346]] or [[12,23], [34]] must transform to BasicAnyVector
+            * */
+          if (partiVals.isInstanceOf[BasicAnyVector] && partiType(0) == 3) {
+            val partiListVals = partiVals.asInstanceOf[BasicAnyVector]
+
+            if (partiListVals.getEntity(pi).isInstanceOf[Vector]) {
+              val partiListVector = partiListVals.getEntity(pi).asInstanceOf[Vector]
+              for (plv <- 0 until(partiListVector.rows())) {
+                partiBuf += partiListVector.get(plv).toString
+              }
+            } else {
+              /**    partiListVals type is BasicAnyVector but contain Scalar    */
+              partiBuf += partiListVals.get(pi).toString
+            }
+          } else if (partiType(0) == 2) {  /**  partitionType = 2 stands for range partition */
+            if (pi != partiVals.rows() - 1) {
+              partiBuf += partiVals.get(pi).toString
+              partiBuf += partiVals.get(pi+1).toString
+            } else {
+              partiBuf += partiVals.get(pi).toString
+              partiBuf += partiVals.get(pi).toString
+            }
+          } else {
+            partiBuf += partiVals.get(pi).toString
+          }
+          /** There are partition filter in User-defined SQL, So filter partition  */
           if (!(partiFilters.length != 0 && getDolphinDBPartitionBySingleFilter(partiCols(0),
-            partiVals.get(pi).toString, partiFilters.toArray))) {
+            partiBuf.toArray, partiType(0), partiFilters.toArray))) {
             addPartFlag = false
           }
           if (addPartFlag) {
-            partiValArr += ArrayBuffer(partiVals.get(pi).getString)
+            partiValArr += ArrayBuffer(partiBuf.toArray)
           }
-        }
+      }
     }
 
     /**   Create spark partitions based on filtered partition values     */
     for (pi <- 0 until(partiValArr.length)) {
-      partitions += new DolphinDBPartition(pi, addrs, partiCols, partiValArr(pi).toArray)
+      partitions += new DolphinDBPartition(pi, addrs, partiCols,partiType, partiValArr(pi).toArray)
     }
     partitions.toArray
   }
@@ -117,1110 +177,1128 @@ case class DolphinDBPartitioner(option: DolphinDBOptions) extends Serializable {
     * A partition can be created only if the partition column is the same
     * as the filter column and the partition column values match the filter values.
     * @param partCol partition column
-    * @param partiVal partition column value
+    * @param partiVals partition column value
+    * @param partiType partition type
     * @param partFilter filter is defined by user
     * @return
     */
   private def getDolphinDBPartitionBySingleFilter (
-          partCol :String, partiVal : String,
+          partCol :String, partiVals : Array[String], partiType : Int,
           partFilter: Array[Filter]) : Boolean = {
 
     /**   Get the partiton column type in dolphindb  */
-     val partType = DolphinDBRDD.originNameToType.get(partCol).get.toUpperCase
+    val partType = DolphinDBRDD.originNameToType.get(partCol).get.toUpperCase
 
-     if(partType.equals("STRING") || partType.equals("SYMBOL")) {
-       var flagPart = false
-       partFilter.foreach(f => f match {
+    var flagPart = false
+//     for (partiVal <- partiVals) {
+       if(partType.equals("STRING") || partType.equals("SYMBOL")) {
+         partFilter.foreach(f => f match {
+             case EqualTo(attr, value) => {
+               var typeFlag = false
+               if (partType == 3) {
+                partiVals.foreach(pv => if (pv.equals(value.toString)) {
+                  typeFlag = true
+                })
+               } else if (partType == 2) {
+                 if (partiVals(0).equals(partiVals(1)) && partiVals(0).equals(value.toString)){
+                    typeFlag = true
+                 } else if((partiVals(0) <= value.toString && value.toString < partiVals(1)) ||
+                   (partiVals(1) <= value.toString && value.toString < partiVals(0))){
+                   typeFlag = true
+                 }
+               } else {
+                if (partiVals(0).equals(value.toString)) typeFlag = true
+               }
+               if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
+                 flagPart = true
+               }
+             }
+             case LessThan(attr, value) => {
+               if ((attr.equalsIgnoreCase(partCol) &&
+                 partiVal.toString < value.toString)) {
+                 flagPart = true
+               }
+             }
+             case GreaterThan(attr, value) => {
+               if ((attr.equalsIgnoreCase(partCol) &&
+                 partiVal.toString > value.toString)) {
+                 flagPart = true
+               }
+             }
+             case LessThanOrEqual(attr, value) => {
+               if ((attr.equalsIgnoreCase(partCol) &&
+                 partiVal.toString <= value.toString)) {
+                 flagPart = true
+               }
+             }
+             case GreaterThanOrEqual(attr, value) => {
+               if ((attr.equalsIgnoreCase(partCol) &&
+                 partiVal.toString >= value.toString)) {
+                 flagPart = true
+               }
+             }
+             case StringStartsWith(attr, value) => {
+               val str = value.substring(0, attr.indexOf("%"))
+               if (attr.equalsIgnoreCase(partCol) &&
+                 partiVal.toString.startsWith(str)) {
+                 flagPart = true
+               }
+             }
+             case StringEndsWith(attr, value) => {
+               val str = value.substring(attr.indexOf("%") + 1)
+               if (attr.equalsIgnoreCase(partCol) &&
+                 partiVal.toString.endsWith(str)) {
+                 flagPart = true
+               }
+             }
+             case StringContains(attr, value) => {
+               val str = value.substring(1, value.lastIndexOf("%") + 1)
+               if (attr.equalsIgnoreCase(partCol) &&
+                 partiVal.toString.contains(str)) {
+                 flagPart = true
+               }
+             }
+             case In(attr, value) => {
+               var vin = false
+               value.foreach(v => if (v.toString.equals(partiVal)) vin = true)
+               if (attr.equalsIgnoreCase(partCol) && vin) {
+                 flagPart = true
+               }
+             }
+             case Not(f) => {
+                if (!getDolphinDBPartitionBySingleFilter(partCol,Array(partiVal),partiType,Array(f))) {
+                  flagPart = true
+                }
+             }
+             case Or(f1, f2) => {
+               if (getDolphinDBPartitionBySingleFilter(partCol, Array(partiVal),partiType, Array(f1)) ||
+                 getDolphinDBPartitionBySingleFilter(partCol, Array(partiVal),partiType, Array(f2))) {
+                 flagPart = true
+               }
+             }
+             case And(f1, f2) => {
+               if (getDolphinDBPartitionBySingleFilter(partCol, Array(partiVal),partiType, Array(f1)) &&
+                 getDolphinDBPartitionBySingleFilter(partCol, Array(partiVal),partiType, Array(f2))) {
+                 flagPart = true
+               }
+             }
+             case _ =>
+         })
+//         flagPart
+       } else if (partType.equals("INT") || partType.equals("LONG")
+            || partType.equals("SHORT")){
+//         var flagPart = false
+         partFilter.foreach(f => f match {
            case EqualTo(attr, value) => {
              if ((attr.equalsIgnoreCase(partCol) &&
-               partiVal.toString.equals(value.toString))) {
+               partiVal.toLong == value.toString.toLong)) {
                flagPart = true
              }
            }
            case LessThan(attr, value) => {
              if ((attr.equalsIgnoreCase(partCol) &&
-               partiVal.toString < value.toString)) {
+               partiVal.toLong < value.toString.toLong)) {
                flagPart = true
              }
            }
            case GreaterThan(attr, value) => {
              if ((attr.equalsIgnoreCase(partCol) &&
-               partiVal.toString > value.toString)) {
+               partiVal.toLong > value.toString.toLong)) {
                flagPart = true
              }
            }
            case LessThanOrEqual(attr, value) => {
              if ((attr.equalsIgnoreCase(partCol) &&
-               partiVal.toString <= value.toString)) {
+               partiVal.toLong <= value.toString.toLong)) {
                flagPart = true
              }
            }
            case GreaterThanOrEqual(attr, value) => {
              if ((attr.equalsIgnoreCase(partCol) &&
-               partiVal.toString >= value.toString)) {
-               flagPart = true
-             }
-           }
-           case StringStartsWith(attr, value) => {
-             val str = value.substring(0, attr.indexOf("%"))
-             if (attr.equalsIgnoreCase(partCol) &&
-               partiVal.toString.startsWith(str)) {
-               flagPart = true
-             }
-           }
-           case StringEndsWith(attr, value) => {
-             val str = value.substring(attr.indexOf("%") + 1)
-             if (attr.equalsIgnoreCase(partCol) &&
-               partiVal.toString.endsWith(str)) {
-               flagPart = true
-             }
-           }
-           case StringContains(attr, value) => {
-             val str = value.substring(1, value.lastIndexOf("%") + 1)
-             if (attr.equalsIgnoreCase(partCol) &&
-               partiVal.toString.contains(str)) {
+               partiVal.toLong >= value.toString.toLong)) {
                flagPart = true
              }
            }
            case In(attr, value) => {
              var vin = false
-             value.foreach(v => if (v.toString.equals(partiVal)) vin = true)
+             value.foreach(v => if (v.toString.toLong == partiVal.toLong) vin = true)
              if (attr.equalsIgnoreCase(partCol) && vin) {
                flagPart = true
              }
            }
            case Not(f) => {
-              if (!getDolphinDBPartitionBySingleFilter(partCol,partiVal,Array(f))) {
-                flagPart = true
-              }
+             if (!getDolphinDBPartitionBySingleFilter(partCol,Array(partiVal),partiType,Array(f))) {
+               flagPart = true
+             }
            }
            case Or(f1, f2) => {
-             if (getDolphinDBPartitionBySingleFilter(partCol, partiVal, Array(f1)) ||
-               getDolphinDBPartitionBySingleFilter(partCol, partiVal, Array(f2))) {
+             if (getDolphinDBPartitionBySingleFilter(partCol, Array(partiVal),partiType, Array(f1)) ||
+               getDolphinDBPartitionBySingleFilter(partCol, Array(partiVal),partiType, Array(f2))) {
                flagPart = true
              }
            }
            case And(f1, f2) => {
-             if (getDolphinDBPartitionBySingleFilter(partCol, partiVal, Array(f1)) &&
-               getDolphinDBPartitionBySingleFilter(partCol, partiVal, Array(f2))) {
+             if (getDolphinDBPartitionBySingleFilter(partCol, Array(partiVal),partiType, Array(f1)) &&
+               getDolphinDBPartitionBySingleFilter(partCol, Array(partiVal),partiType, Array(f2))) {
                flagPart = true
              }
            }
            case _ =>
-       })
-       flagPart
-     } else if (partType.equals("INT") || partType.equals("LONG")
-          || partType.equals("SHORT")){
-       var flagPart = false
-       partFilter.foreach(f => f match {
-         case EqualTo(attr, value) => {
-           if ((attr.equalsIgnoreCase(partCol) &&
-             partiVal.toLong == value.toString.toLong)) {
-             flagPart = true
+         })
+//         flagPart
+       } else if (partType.equals("CHAR")) {
+//         var flagPart = false
+         partFilter.foreach(f => f match {
+           case EqualTo(attr, value) => {
+             if ((attr.equalsIgnoreCase(partCol) &&
+               partiVal.charAt(0).toByte == value.toString.toByte)) {
+               flagPart = true
+             }
            }
-         }
-         case LessThan(attr, value) => {
-           if ((attr.equalsIgnoreCase(partCol) &&
-             partiVal.toLong < value.toString.toLong)) {
-             flagPart = true
+           case LessThan(attr, value) => {
+             if ((attr.equalsIgnoreCase(partCol) &&
+               partiVal.charAt(0).toByte < value.toString.toByte)) {
+               flagPart = true
+             }
            }
-         }
-         case GreaterThan(attr, value) => {
-           if ((attr.equalsIgnoreCase(partCol) &&
-             partiVal.toLong > value.toString.toLong)) {
-             flagPart = true
+           case GreaterThan(attr, value) => {
+             if ((attr.equalsIgnoreCase(partCol) &&
+               partiVal.charAt(0).toByte > value.toString.toByte)) {
+               flagPart = true
+             }
            }
-         }
-         case LessThanOrEqual(attr, value) => {
-           if ((attr.equalsIgnoreCase(partCol) &&
-             partiVal.toLong <= value.toString.toLong)) {
-             flagPart = true
+           case LessThanOrEqual(attr, value) => {
+             if ((attr.equalsIgnoreCase(partCol) &&
+               partiVal.charAt(0).toByte <= value.toString.toByte)) {
+               flagPart = true
+             }
            }
-         }
-         case GreaterThanOrEqual(attr, value) => {
-           if ((attr.equalsIgnoreCase(partCol) &&
-             partiVal.toLong >= value.toString.toLong)) {
-             flagPart = true
+           case GreaterThanOrEqual(attr, value) => {
+             if ((attr.equalsIgnoreCase(partCol) &&
+               partiVal.charAt(0).toByte >= value.toString.toByte)) {
+               flagPart = true
+             }
            }
-         }
-         case In(attr, value) => {
-           var vin = false
-           value.foreach(v => if (v.toString.toLong == partiVal.toLong) vin = true)
-           if (attr.equalsIgnoreCase(partCol) && vin) {
-             flagPart = true
+           case In(attr, value) => {
+             var vin = false
+             value.foreach(v => if (v.toString.charAt(0).toByte == partiVal.toByte) vin = true)
+             if (attr.equalsIgnoreCase(partCol) && vin) {
+               flagPart = true
+             }
            }
-         }
-         case Not(f) => {
-           if (!getDolphinDBPartitionBySingleFilter(partCol,partiVal,Array(f))) {
-             flagPart = true
+           case Not(f) => {
+             if (!getDolphinDBPartitionBySingleFilter(partCol,Array(partiVal),partiType,Array(f))) {
+               flagPart = true
+             }
            }
-         }
-         case Or(f1, f2) => {
-           if (getDolphinDBPartitionBySingleFilter(partCol, partiVal, Array(f1)) ||
-             getDolphinDBPartitionBySingleFilter(partCol, partiVal, Array(f2))) {
-             flagPart = true
+           case Or(f1, f2) => {
+             if (getDolphinDBPartitionBySingleFilter(partCol, Array(partiVal),partiType, Array(f1)) ||
+               getDolphinDBPartitionBySingleFilter(partCol, Array(partiVal),partiType, Array(f2))) {
+               flagPart = true
+             }
            }
-         }
-         case And(f1, f2) => {
-           if (getDolphinDBPartitionBySingleFilter(partCol, partiVal, Array(f1)) &&
-             getDolphinDBPartitionBySingleFilter(partCol, partiVal, Array(f2))) {
-             flagPart = true
+           case And(f1, f2) => {
+             if (getDolphinDBPartitionBySingleFilter(partCol, Array(partiVal),partiType, Array(f1)) &&
+               getDolphinDBPartitionBySingleFilter(partCol, Array(partiVal),partiType, Array(f2))) {
+               flagPart = true
+             }
            }
-         }
-         case _ =>
-       })
-       flagPart
-     } else if (partType.equals("CHAR")) {
-       var flagPart = false
-       partFilter.foreach(f => f match {
-         case EqualTo(attr, value) => {
-           if ((attr.equalsIgnoreCase(partCol) &&
-             partiVal.charAt(0).toByte == value.toString.toByte)) {
-             flagPart = true
+           case _ =>
+         })
+//         flagPart
+       } else if (partType.equals("FLOAT") || partType.equals("DOUBLE")) {
+//         var flagPart = false
+         partFilter.foreach(f => f match {
+           case EqualTo(attr, value) => {
+             if ((attr.equalsIgnoreCase(partCol) &&
+               partiVal.toDouble == value.toString.toDouble)) {
+               flagPart = true
+             }
            }
-         }
-         case LessThan(attr, value) => {
-           if ((attr.equalsIgnoreCase(partCol) &&
-             partiVal.charAt(0).toByte < value.toString.toByte)) {
-             flagPart = true
+           case LessThan(attr, value) => {
+             if ((attr.equalsIgnoreCase(partCol) &&
+               partiVal.toDouble < value.toString.toDouble)) {
+               flagPart = true
+             }
            }
-         }
-         case GreaterThan(attr, value) => {
-           if ((attr.equalsIgnoreCase(partCol) &&
-             partiVal.charAt(0).toByte > value.toString.toByte)) {
-             flagPart = true
+           case GreaterThan(attr, value) => {
+             if ((attr.equalsIgnoreCase(partCol) &&
+               partiVal.toDouble > value.toString.toDouble)) {
+               flagPart = true
+             }
            }
-         }
-         case LessThanOrEqual(attr, value) => {
-           if ((attr.equalsIgnoreCase(partCol) &&
-             partiVal.charAt(0).toByte <= value.toString.toByte)) {
-             flagPart = true
+           case LessThanOrEqual(attr, value) => {
+             if ((attr.equalsIgnoreCase(partCol) &&
+               partiVal.toDouble <= value.toString.toDouble)) {
+               flagPart = true
+             }
            }
-         }
-         case GreaterThanOrEqual(attr, value) => {
-           if ((attr.equalsIgnoreCase(partCol) &&
-             partiVal.charAt(0).toByte >= value.toString.toByte)) {
-             flagPart = true
+           case GreaterThanOrEqual(attr, value) => {
+             if ((attr.equalsIgnoreCase(partCol) &&
+               partiVal.toDouble >= value.toString.toDouble)) {
+               flagPart = true
+             }
            }
-         }
-         case In(attr, value) => {
-           var vin = false
-           value.foreach(v => if (v.toString.charAt(0).toByte == partiVal.toByte) vin = true)
-           if (attr.equalsIgnoreCase(partCol) && vin) {
-             flagPart = true
+           case In(attr, value) => {
+             var vin = false
+             value.foreach(v => if (v.toString.toDouble == partiVal.toDouble) vin = true)
+             if (attr.equalsIgnoreCase(partCol) && vin) {
+               flagPart = true
+             }
            }
-         }
-         case Not(f) => {
-           if (!getDolphinDBPartitionBySingleFilter(partCol,partiVal,Array(f))) {
-             flagPart = true
+           case Not(f) => {
+             if (!getDolphinDBPartitionBySingleFilter(partCol,Array(partiVal),partiType,Array(f))) {
+               flagPart = true
+             }
            }
-         }
-         case Or(f1, f2) => {
-           if (getDolphinDBPartitionBySingleFilter(partCol, partiVal, Array(f1)) ||
-             getDolphinDBPartitionBySingleFilter(partCol, partiVal, Array(f2))) {
-             flagPart = true
+           case Or(f1, f2) => {
+             if (getDolphinDBPartitionBySingleFilter(partCol, Array(partiVal),partiType, Array(f1)) ||
+               getDolphinDBPartitionBySingleFilter(partCol, Array(partiVal),partiType, Array(f2))) {
+               flagPart = true
+             }
            }
-         }
-         case And(f1, f2) => {
-           if (getDolphinDBPartitionBySingleFilter(partCol, partiVal, Array(f1)) &&
-             getDolphinDBPartitionBySingleFilter(partCol, partiVal, Array(f2))) {
-             flagPart = true
+           case And(f1, f2) => {
+             if (getDolphinDBPartitionBySingleFilter(partCol, Array(partiVal),partiType, Array(f1)) &&
+               getDolphinDBPartitionBySingleFilter(partCol, Array(partiVal),partiType, Array(f2))) {
+               flagPart = true
+             }
            }
-         }
-         case _ =>
-       })
-       flagPart
-     } else if (partType.equals("FLOAT") || partType.equals("DOUBLE")) {
-       var flagPart = false
-       partFilter.foreach(f => f match {
-         case EqualTo(attr, value) => {
-           if ((attr.equalsIgnoreCase(partCol) &&
-             partiVal.toDouble == value.toString.toDouble)) {
-             flagPart = true
-           }
-         }
-         case LessThan(attr, value) => {
-           if ((attr.equalsIgnoreCase(partCol) &&
-             partiVal.toDouble < value.toString.toDouble)) {
-             flagPart = true
-           }
-         }
-         case GreaterThan(attr, value) => {
-           if ((attr.equalsIgnoreCase(partCol) &&
-             partiVal.toDouble > value.toString.toDouble)) {
-             flagPart = true
-           }
-         }
-         case LessThanOrEqual(attr, value) => {
-           if ((attr.equalsIgnoreCase(partCol) &&
-             partiVal.toDouble <= value.toString.toDouble)) {
-             flagPart = true
-           }
-         }
-         case GreaterThanOrEqual(attr, value) => {
-           if ((attr.equalsIgnoreCase(partCol) &&
-             partiVal.toDouble >= value.toString.toDouble)) {
-             flagPart = true
-           }
-         }
-         case In(attr, value) => {
-           var vin = false
-           value.foreach(v => if (v.toString.toDouble == partiVal.toDouble) vin = true)
-           if (attr.equalsIgnoreCase(partCol) && vin) {
-             flagPart = true
-           }
-         }
-         case Not(f) => {
-           if (!getDolphinDBPartitionBySingleFilter(partCol,partiVal,Array(f))) {
-             flagPart = true
-           }
-         }
-         case Or(f1, f2) => {
-           if (getDolphinDBPartitionBySingleFilter(partCol, partiVal, Array(f1)) ||
-             getDolphinDBPartitionBySingleFilter(partCol, partiVal, Array(f2))) {
-             flagPart = true
-           }
-         }
-         case And(f1, f2) => {
-           if (getDolphinDBPartitionBySingleFilter(partCol, partiVal, Array(f1)) &&
-             getDolphinDBPartitionBySingleFilter(partCol, partiVal, Array(f2))) {
-             flagPart = true
-           }
-         }
-         case _ =>
-       })
-       flagPart
-     } else if (partType.equals("MONTH")) {
-       var flagPart = false
-       val partMon = partiVal.replace("M", "").split(".")
-       partFilter.foreach(f => f match {
-         case EqualTo(attr, value) => {
-           var userMonstr :String = null
-           if (value.toString.contains("M")){
-             userMonstr = value.toString.replace("M", "")
-           } else {
-             userMonstr = value.toString
-           }
-           val userMon = userMonstr.split("-")
-           if ((attr.equalsIgnoreCase(partCol) &&
-             Utils.countMonths(partMon(0).toInt, partMon(1).toInt) ==
-               Utils.countMonths(userMon(0).toInt, userMon(1).toInt))) {
-             flagPart = true
-           }
-         }
-         case LessThan(attr, value) => {
-           var userMonstr :String = null
-           if (value.toString.contains("M")){
-             userMonstr = value.toString.replace("M", "")
-           } else {
-             userMonstr = value.toString
-           }
-           val userMon = userMonstr.split("-")
-           if ((attr.equalsIgnoreCase(partCol) &&
-             Utils.countMonths(partMon(0).toInt, partMon(1).toInt) <
-               Utils.countMonths(userMon(0).toInt, userMon(1).toInt))) {
-             flagPart = true
-           }
-         }
-         case GreaterThan(attr, value) => {
-           var userMonstr :String = null
-           if (value.toString.contains("M")){
-             userMonstr = value.toString.replace("M", "")
-           } else {
-             userMonstr = value.toString
-           }
-           val userMon = userMonstr.split("-")
-           if ((attr.equalsIgnoreCase(partCol) &&
-             Utils.countMonths(partMon(0).toInt, partMon(1).toInt) >
-               Utils.countMonths(userMon(0).toInt, userMon(1).toInt))) {
-             flagPart = true
-           }
-         }
-         case LessThanOrEqual(attr, value) => {
-           var userMonstr :String = null
-           if (value.toString.contains("M")){
-             userMonstr = value.toString.replace("M", "")
-           } else {
-             userMonstr = value.toString
-           }
-           val userMon = userMonstr.split("-")
-           if ((attr.equalsIgnoreCase(partCol) &&
-             Utils.countMonths(partMon(0).toInt, partMon(1).toInt) <=
-               Utils.countMonths(userMon(0).toInt, userMon(1).toInt))) {
-             flagPart = true
-           }
-         }
-         case GreaterThanOrEqual(attr, value) => {
-           var userMonstr :String = null
-           if (value.toString.contains("M")){
-             userMonstr = value.toString.replace("M", "")
-           } else {
-             userMonstr = value.toString
-           }
-           val userMon = userMonstr.split("-")
-           if ((attr.equalsIgnoreCase(partCol) &&
-             Utils.countMonths(partMon(0).toInt, partMon(1).toInt) >=
-               Utils.countMonths(userMon(0).toInt, userMon(1).toInt))) {
-             flagPart = true
-           }
-         }
-         case In(attr, value) => {
-           var vin = false
-           value.foreach { v =>
-             var mon: String = null
-             if (v.toString.contains("M")) {
-               mon = v.toString.replace("M", "")
+           case _ =>
+         })
+//         flagPart
+       } else if (partType.equals("MONTH")) {
+//         var flagPart = false
+         val partMon = partiVal.replace("M", "").split(".")
+         partFilter.foreach(f => f match {
+           case EqualTo(attr, value) => {
+             var userMonstr :String = null
+             if (value.toString.contains("M")){
+               userMonstr = value.toString.replace("M", "")
              } else {
-               mon = value.toString
+               userMonstr = value.toString
              }
-             if (mon.replace("-", ".").contains(
-                    partiVal.replace("M", ""))) {
-               vin = true
+             val userMon = userMonstr.split("-")
+             if ((attr.equalsIgnoreCase(partCol) &&
+               Utils.countMonths(partMon(0).toInt, partMon(1).toInt) ==
+                 Utils.countMonths(userMon(0).toInt, userMon(1).toInt))) {
+               flagPart = true
              }
            }
-           if (attr.equalsIgnoreCase(partCol) && vin) {
-             flagPart = true
+           case LessThan(attr, value) => {
+             var userMonstr :String = null
+             if (value.toString.contains("M")){
+               userMonstr = value.toString.replace("M", "")
+             } else {
+               userMonstr = value.toString
+             }
+             val userMon = userMonstr.split("-")
+             if ((attr.equalsIgnoreCase(partCol) &&
+               Utils.countMonths(partMon(0).toInt, partMon(1).toInt) <
+                 Utils.countMonths(userMon(0).toInt, userMon(1).toInt))) {
+               flagPart = true
+             }
            }
-         }
-         case Not(f) => {
-           if (!getDolphinDBPartitionBySingleFilter(partCol,partiVal,Array(f))) {
-             flagPart = true
+           case GreaterThan(attr, value) => {
+             var userMonstr :String = null
+             if (value.toString.contains("M")){
+               userMonstr = value.toString.replace("M", "")
+             } else {
+               userMonstr = value.toString
+             }
+             val userMon = userMonstr.split("-")
+             if ((attr.equalsIgnoreCase(partCol) &&
+               Utils.countMonths(partMon(0).toInt, partMon(1).toInt) >
+                 Utils.countMonths(userMon(0).toInt, userMon(1).toInt))) {
+               flagPart = true
+             }
            }
-         }
-         case Or(f1, f2) => {
-           if (getDolphinDBPartitionBySingleFilter(partCol, partiVal, Array(f1)) ||
-             getDolphinDBPartitionBySingleFilter(partCol, partiVal, Array(f2))) {
-             flagPart = true
+           case LessThanOrEqual(attr, value) => {
+             var userMonstr :String = null
+             if (value.toString.contains("M")){
+               userMonstr = value.toString.replace("M", "")
+             } else {
+               userMonstr = value.toString
+             }
+             val userMon = userMonstr.split("-")
+             if ((attr.equalsIgnoreCase(partCol) &&
+               Utils.countMonths(partMon(0).toInt, partMon(1).toInt) <=
+                 Utils.countMonths(userMon(0).toInt, userMon(1).toInt))) {
+               flagPart = true
+             }
            }
-         }
-         case And(f1, f2) => {
-           if (getDolphinDBPartitionBySingleFilter(partCol, partiVal, Array(f1)) &&
-             getDolphinDBPartitionBySingleFilter(partCol, partiVal, Array(f2))) {
-             flagPart = true
+           case GreaterThanOrEqual(attr, value) => {
+             var userMonstr :String = null
+             if (value.toString.contains("M")){
+               userMonstr = value.toString.replace("M", "")
+             } else {
+               userMonstr = value.toString
+             }
+             val userMon = userMonstr.split("-")
+             if ((attr.equalsIgnoreCase(partCol) &&
+               Utils.countMonths(partMon(0).toInt, partMon(1).toInt) >=
+                 Utils.countMonths(userMon(0).toInt, userMon(1).toInt))) {
+               flagPart = true
+             }
            }
-         }
-         case _ =>
-       })
-       flagPart
-     } else if (partType.equals("BOOL")) {
-       var flagPart = false
-       val partBool = if (partiVal.toString.equals("0") || partiVal.toLowerCase.equals("false")) false else true
-       partFilter.foreach(f => f match {
-         case EqualTo(attr, value) => {
-           val valBool =  if (value.toString.equals("0") || value.toString.toLowerCase.equals("false")) false else true
-           if ((attr.equalsIgnoreCase(partCol) &&
-             partiVal == valBool)) {
-             flagPart = true
+           case In(attr, value) => {
+             var vin = false
+             value.foreach { v =>
+               var mon: String = null
+               if (v.toString.contains("M")) {
+                 mon = v.toString.replace("M", "")
+               } else {
+                 mon = value.toString
+               }
+               if (mon.replace("-", ".").contains(
+                      partiVal.replace("M", ""))) {
+                 vin = true
+               }
+             }
+             if (attr.equalsIgnoreCase(partCol) && vin) {
+               flagPart = true
+             }
            }
-         }
-         case In(attr, value) => {
-           var vin = false
-           value.foreach(v => {
-             val vBool = if (v.toString.equals("0") || v.toString.toLowerCase.equals("false")) false else true
-             if (vBool == partBool) vin = true
-           })
-           if (attr.equalsIgnoreCase(partCol) && vin) {
-             flagPart = true
+           case Not(f) => {
+             if (!getDolphinDBPartitionBySingleFilter(partCol,Array(partiVal),partiType,Array(f))) {
+               flagPart = true
+             }
            }
-         }
-         case Not(f) => {
-           if (!getDolphinDBPartitionBySingleFilter(partCol,partiVal,Array(f))) {
-             flagPart = true
+           case Or(f1, f2) => {
+             if (getDolphinDBPartitionBySingleFilter(partCol, Array(partiVal),partiType, Array(f1)) ||
+               getDolphinDBPartitionBySingleFilter(partCol, Array(partiVal),partiType, Array(f2))) {
+               flagPart = true
+             }
            }
-         }
-         case Or(f1, f2) => {
-           if (getDolphinDBPartitionBySingleFilter(partCol, partiVal, Array(f1)) ||
-             getDolphinDBPartitionBySingleFilter(partCol, partiVal, Array(f2))) {
-             flagPart = true
+           case And(f1, f2) => {
+             if (getDolphinDBPartitionBySingleFilter(partCol, Array(partiVal),partiType, Array(f1)) &&
+               getDolphinDBPartitionBySingleFilter(partCol, Array(partiVal),partiType, Array(f2))) {
+               flagPart = true
+             }
            }
-         }
-         case And(f1, f2) => {
-           if (getDolphinDBPartitionBySingleFilter(partCol, partiVal, Array(f1)) &&
-             getDolphinDBPartitionBySingleFilter(partCol, partiVal, Array(f2))) {
-             flagPart = true
+           case _ =>
+         })
+//         flagPart
+       } else if (partType.equals("BOOL")) {
+//         var flagPart = false
+         val partBool = if (partiVal.toString.equals("0") || partiVal.toLowerCase.equals("false")) false else true
+         partFilter.foreach(f => f match {
+           case EqualTo(attr, value) => {
+             val valBool =  if (value.toString.equals("0") || value.toString.toLowerCase.equals("false")) false else true
+             if ((attr.equalsIgnoreCase(partCol) &&
+               partiVal == valBool)) {
+               flagPart = true
+             }
            }
-         }
-         case _ =>
-       })
-       flagPart
-     } else if (partType.equals("TIME")) {
-       val partTimeInt = Utils.countMilliseconds(LocalTime.parse(partiVal.toString))
-       var flagPart = false
-       partFilter.foreach(f => f match {
-         case EqualTo(attr, value) => {
-           var userTime : String = null
-           if (value.toString.contains(" ") || value.toString.contains("T")) { userTime = value.toString.split("[ T]")(1) }
-           else userTime = value.toString
-           val userTimeInt = Utils.countMilliseconds(LocalTime.parse(userTime))
-           if ((attr.equalsIgnoreCase(partCol) &&
-             partTimeInt == userTimeInt)) {
-             flagPart = true
+           case In(attr, value) => {
+             var vin = false
+             value.foreach(v => {
+               val vBool = if (v.toString.equals("0") || v.toString.toLowerCase.equals("false")) false else true
+               if (vBool == partBool) vin = true
+             })
+             if (attr.equalsIgnoreCase(partCol) && vin) {
+               flagPart = true
+             }
            }
-         }
-         case LessThan(attr, value) => {
-           var userTime : String = null
-           if (value.toString.contains(" ") || value.toString.contains("T")) { userTime = value.toString.split("[ T]")(1) }
-           else userTime = value.toString
-           val userTimeInt = Utils.countMilliseconds(LocalTime.parse(userTime))
-           if ((attr.equalsIgnoreCase(partCol) &&
-             partTimeInt < userTimeInt)) {
-             flagPart = true
+           case Not(f) => {
+             if (!getDolphinDBPartitionBySingleFilter(partCol,Array(partiVal),partiType,Array(f))) {
+               flagPart = true
+             }
            }
-         }
-         case GreaterThan(attr, value) => {
-           var userTime : String = null
-           if (value.toString.contains(" ") || value.toString.contains("T")) { userTime = value.toString.split("[ T]")(1) }
-           else userTime = value.toString
-           val userTimeInt = Utils.countMilliseconds(LocalTime.parse(userTime))
-           if ((attr.equalsIgnoreCase(partCol) &&
-             partTimeInt > userTimeInt)) {
-             flagPart = true
+           case Or(f1, f2) => {
+             if (getDolphinDBPartitionBySingleFilter(partCol, Array(partiVal),partiType, Array(f1)) ||
+               getDolphinDBPartitionBySingleFilter(partCol, Array(partiVal),partiType, Array(f2))) {
+               flagPart = true
+             }
            }
-         }
-         case LessThanOrEqual(attr, value) => {
-           var userTime : String = null
-           if (value.toString.contains(" ") || value.toString.contains("T")) { userTime = value.toString.split("[ T]")(1) }
-           else userTime = value.toString
-           val userTimeInt = Utils.countMilliseconds(LocalTime.parse(userTime))
-           if ((attr.equalsIgnoreCase(partCol) &&
-             partTimeInt <= userTimeInt)) {
-             flagPart = true
+           case And(f1, f2) => {
+             if (getDolphinDBPartitionBySingleFilter(partCol, Array(partiVal),partiType, Array(f1)) &&
+               getDolphinDBPartitionBySingleFilter(partCol, Array(partiVal),partiType, Array(f2))) {
+               flagPart = true
+             }
            }
-         }
-         case GreaterThanOrEqual(attr, value) => {
-           var userTime : String = null
-           if (value.toString.contains(" ") || value.toString.contains("T")) { userTime = value.toString.split("[ T]")(1) }
-           else userTime = value.toString
-           val userTimeInt = Utils.countMilliseconds(LocalTime.parse(userTime))
-           if ((attr.equalsIgnoreCase(partCol) &&
-             partTimeInt >= userTimeInt)) {
-             flagPart = true
-           }
-         }
-         case In(attr, value) => {
-           var vin = false
-           value.foreach(v => {
+           case _ =>
+         })
+//         flagPart
+       } else if (partType.equals("TIME")) {
+//         var flagPart = false
+         val partTimeInt = Utils.countMilliseconds(LocalTime.parse(partiVal.toString))
+         partFilter.foreach(f => f match {
+           case EqualTo(attr, value) => {
              var userTime : String = null
-             if (v.toString.contains(" ") || v.toString.contains("T")) { userTime = v.toString.split("[ T]")(1) }
-             else userTime = v.toString
+             if (value.toString.contains(" ") || value.toString.contains("T")) { userTime = value.toString.split("[ T]")(1) }
+             else userTime = value.toString
              val userTimeInt = Utils.countMilliseconds(LocalTime.parse(userTime))
-             if (userTimeInt == partTimeInt) vin = true
-           })
-           if (attr.equalsIgnoreCase(partCol) && vin) {
-             flagPart = true
+             if ((attr.equalsIgnoreCase(partCol) &&
+               partTimeInt == userTimeInt)) {
+               flagPart = true
+             }
            }
-         }
-         case Not(f) => {
-           if (!getDolphinDBPartitionBySingleFilter(partCol,partiVal,Array(f))) {
-             flagPart = true
+           case LessThan(attr, value) => {
+             var userTime : String = null
+             if (value.toString.contains(" ") || value.toString.contains("T")) { userTime = value.toString.split("[ T]")(1) }
+             else userTime = value.toString
+             val userTimeInt = Utils.countMilliseconds(LocalTime.parse(userTime))
+             if ((attr.equalsIgnoreCase(partCol) &&
+               partTimeInt < userTimeInt)) {
+               flagPart = true
+             }
            }
-         }
-         case Or(f1, f2) => {
-           if (getDolphinDBPartitionBySingleFilter(partCol, partiVal, Array(f1)) ||
-             getDolphinDBPartitionBySingleFilter(partCol, partiVal, Array(f2))) {
-             flagPart = true
+           case GreaterThan(attr, value) => {
+             var userTime : String = null
+             if (value.toString.contains(" ") || value.toString.contains("T")) { userTime = value.toString.split("[ T]")(1) }
+             else userTime = value.toString
+             val userTimeInt = Utils.countMilliseconds(LocalTime.parse(userTime))
+             if ((attr.equalsIgnoreCase(partCol) &&
+               partTimeInt > userTimeInt)) {
+               flagPart = true
+             }
            }
-         }
-         case And(f1, f2) => {
-           if (getDolphinDBPartitionBySingleFilter(partCol, partiVal, Array(f1)) &&
-             getDolphinDBPartitionBySingleFilter(partCol, partiVal, Array(f2))) {
-             flagPart = true
+           case LessThanOrEqual(attr, value) => {
+             var userTime : String = null
+             if (value.toString.contains(" ") || value.toString.contains("T")) { userTime = value.toString.split("[ T]")(1) }
+             else userTime = value.toString
+             val userTimeInt = Utils.countMilliseconds(LocalTime.parse(userTime))
+             if ((attr.equalsIgnoreCase(partCol) &&
+               partTimeInt <= userTimeInt)) {
+               flagPart = true
+             }
            }
-         }
-         case _ =>
-       })
-       flagPart
-     } else if (partType.equals("MINUTE")) {
-       var flagPart = false
-       val partMinInt = Utils.countMinutes(LocalTime.parse(partiVal.replace("m", "")))
-       partFilter.foreach(f => f match {
-         case EqualTo(attr, value) => {
-           var userMin : String = null
-           if (value.toString.contains(" ") || value.toString.contains("T")) { userMin = value.toString.split("[ T]")(1) }
-           else userMin = value.toString
-           val userMinInt = Utils.countMinutes(LocalTime.parse(userMin))
-           if ((attr.equalsIgnoreCase(partCol) &&
-             partMinInt == userMinInt)) {
-             flagPart = true
+           case GreaterThanOrEqual(attr, value) => {
+             var userTime : String = null
+             if (value.toString.contains(" ") || value.toString.contains("T")) { userTime = value.toString.split("[ T]")(1) }
+             else userTime = value.toString
+             val userTimeInt = Utils.countMilliseconds(LocalTime.parse(userTime))
+             if ((attr.equalsIgnoreCase(partCol) &&
+               partTimeInt >= userTimeInt)) {
+               flagPart = true
+             }
            }
-         }
-         case LessThan(attr, value) => {
-           var userMin : String = null
-           if (value.toString.contains(" ") || value.toString.contains("T")) { userMin = value.toString.split("[ T]")(1) }
-           else userMin = value.toString
-           val userMinInt = Utils.countMinutes(LocalTime.parse(userMin))
-           if ((attr.equalsIgnoreCase(partCol) &&
-             partMinInt < userMinInt)) {
-             flagPart = true
+           case In(attr, value) => {
+             var vin = false
+             value.foreach(v => {
+               var userTime : String = null
+               if (v.toString.contains(" ") || v.toString.contains("T")) { userTime = v.toString.split("[ T]")(1) }
+               else userTime = v.toString
+               val userTimeInt = Utils.countMilliseconds(LocalTime.parse(userTime))
+               if (userTimeInt == partTimeInt) vin = true
+             })
+             if (attr.equalsIgnoreCase(partCol) && vin) {
+               flagPart = true
+             }
            }
-         }
-         case GreaterThan(attr, value) => {
-           var userMin : String = null
-           if (value.toString.contains(" ") || value.toString.contains("T")) { userMin = value.toString.split("[ T]")(1) }
-           else userMin = value.toString
-           val userMinInt = Utils.countMinutes(LocalTime.parse(userMin))
-           if ((attr.equalsIgnoreCase(partCol) &&
-             partMinInt > userMinInt)) {
-             flagPart = true
+           case Not(f) => {
+             if (!getDolphinDBPartitionBySingleFilter(partCol,Array(partiVal),partiType,Array(f))) {
+               flagPart = true
+             }
            }
-         }
-         case LessThanOrEqual(attr, value) => {
-           var userMin : String = null
-           if (value.toString.contains(" ") || value.toString.contains("T")) { userMin = value.toString.split("[ T]")(1) }
-           else userMin = value.toString
-           val userMinInt = Utils.countMinutes(LocalTime.parse(userMin))
-           if ((attr.equalsIgnoreCase(partCol) &&
-             partMinInt <= userMinInt)) {
-             flagPart = true
+           case Or(f1, f2) => {
+             if (getDolphinDBPartitionBySingleFilter(partCol, Array(partiVal),partiType, Array(f1)) ||
+               getDolphinDBPartitionBySingleFilter(partCol, Array(partiVal),partiType, Array(f2))) {
+               flagPart = true
+             }
            }
-         }
-         case GreaterThanOrEqual(attr, value) => {
-           var userMin : String = null
-           if (value.toString.contains(" ") || value.toString.contains("T")) { userMin = value.toString.split("[ T]")(1) }
-           else userMin = value.toString
-           val userMinInt = Utils.countMinutes(LocalTime.parse(userMin))
-           if ((attr.equalsIgnoreCase(partCol) &&
-             partMinInt >= userMinInt)) {
-             flagPart = true
+           case And(f1, f2) => {
+             if (getDolphinDBPartitionBySingleFilter(partCol, Array(partiVal),partiType, Array(f1)) &&
+               getDolphinDBPartitionBySingleFilter(partCol, Array(partiVal),partiType, Array(f2))) {
+               flagPart = true
+             }
            }
-         }
-         case In(attr, value) => {
-           var vin = false
-           value.foreach(v => {
+           case _ =>
+         })
+//         flagPart
+       } else if (partType.equals("MINUTE")) {
+//         var flagPart = false
+         val partMinInt = Utils.countMinutes(LocalTime.parse(partiVal.replace("m", "")))
+         partFilter.foreach(f => f match {
+           case EqualTo(attr, value) => {
              var userMin : String = null
-             if (v.toString.contains(" ") || v.toString.contains("T")) { userMin = v.toString.split("[ T]")(1) }
-             else userMin = v.toString
+             if (value.toString.contains(" ") || value.toString.contains("T")) { userMin = value.toString.split("[ T]")(1) }
+             else userMin = value.toString
              val userMinInt = Utils.countMinutes(LocalTime.parse(userMin))
-             if (userMinInt == partMinInt) vin = true
-           })
-           if (attr.equalsIgnoreCase(partCol) && vin) {
-             flagPart = true
+             if ((attr.equalsIgnoreCase(partCol) &&
+               partMinInt == userMinInt)) {
+               flagPart = true
+             }
            }
-         }
-         case Not(f) => {
-           if (!getDolphinDBPartitionBySingleFilter(partCol,partiVal,Array(f))) {
-             flagPart = true
+           case LessThan(attr, value) => {
+             var userMin : String = null
+             if (value.toString.contains(" ") || value.toString.contains("T")) { userMin = value.toString.split("[ T]")(1) }
+             else userMin = value.toString
+             val userMinInt = Utils.countMinutes(LocalTime.parse(userMin))
+             if ((attr.equalsIgnoreCase(partCol) &&
+               partMinInt < userMinInt)) {
+               flagPart = true
+             }
            }
-         }
-         case Or(f1, f2) => {
-           if (getDolphinDBPartitionBySingleFilter(partCol, partiVal, Array(f1)) ||
-             getDolphinDBPartitionBySingleFilter(partCol, partiVal, Array(f2))) {
-             flagPart = true
+           case GreaterThan(attr, value) => {
+             var userMin : String = null
+             if (value.toString.contains(" ") || value.toString.contains("T")) { userMin = value.toString.split("[ T]")(1) }
+             else userMin = value.toString
+             val userMinInt = Utils.countMinutes(LocalTime.parse(userMin))
+             if ((attr.equalsIgnoreCase(partCol) &&
+               partMinInt > userMinInt)) {
+               flagPart = true
+             }
            }
-         }
-         case And(f1, f2) => {
-           if (getDolphinDBPartitionBySingleFilter(partCol, partiVal, Array(f1)) &&
-             getDolphinDBPartitionBySingleFilter(partCol, partiVal, Array(f2))) {
-             flagPart = true
+           case LessThanOrEqual(attr, value) => {
+             var userMin : String = null
+             if (value.toString.contains(" ") || value.toString.contains("T")) { userMin = value.toString.split("[ T]")(1) }
+             else userMin = value.toString
+             val userMinInt = Utils.countMinutes(LocalTime.parse(userMin))
+             if ((attr.equalsIgnoreCase(partCol) &&
+               partMinInt <= userMinInt)) {
+               flagPart = true
+             }
            }
-         }
-         case _ =>
-       })
-       flagPart
-     } else if (partType.equals("SECOND")) {
-       var flagPart = false
-       val partSecInt = Utils.countSeconds(LocalTime.parse(partiVal))
-       partFilter.foreach(f => f match {
-         case EqualTo(attr, value) => {
-           var userSec : String = null
-           if (value.toString.contains(" ") || value.toString.contains("T")) { userSec = value.toString.split("[ T]")(1) }
-           else userSec = value.toString
-           val userSecInt = Utils.countSeconds(LocalTime.parse(userSec))
-           if ((attr.equalsIgnoreCase(partCol) &&
-             partSecInt == userSecInt)) {
-             flagPart = true
+           case GreaterThanOrEqual(attr, value) => {
+             var userMin : String = null
+             if (value.toString.contains(" ") || value.toString.contains("T")) { userMin = value.toString.split("[ T]")(1) }
+             else userMin = value.toString
+             val userMinInt = Utils.countMinutes(LocalTime.parse(userMin))
+             if ((attr.equalsIgnoreCase(partCol) &&
+               partMinInt >= userMinInt)) {
+               flagPart = true
+             }
            }
-         }
-         case LessThan(attr, value) => {
-           var userSec : String = null
-           if (value.toString.contains(" ") || value.toString.contains("T")) { userSec = value.toString.split("[ T]")(1) }
-           else userSec = value.toString
-           val userSecInt = Utils.countSeconds(LocalTime.parse(userSec))
-           if ((attr.equalsIgnoreCase(partCol) &&
-             partSecInt < userSecInt)) {
-             flagPart = true
+           case In(attr, value) => {
+             var vin = false
+             value.foreach(v => {
+               var userMin : String = null
+               if (v.toString.contains(" ") || v.toString.contains("T")) { userMin = v.toString.split("[ T]")(1) }
+               else userMin = v.toString
+               val userMinInt = Utils.countMinutes(LocalTime.parse(userMin))
+               if (userMinInt == partMinInt) vin = true
+             })
+             if (attr.equalsIgnoreCase(partCol) && vin) {
+               flagPart = true
+             }
            }
-         }
-         case GreaterThan(attr, value) => {
-           var userSec : String = null
-           if (value.toString.contains(" ") || value.toString.contains("T")) { userSec = value.toString.split("[ T]")(1) }
-           else userSec = value.toString
-           val userSecInt = Utils.countSeconds(LocalTime.parse(userSec))
-           if ((attr.equalsIgnoreCase(partCol) &&
-             partSecInt > userSecInt)) {
-             flagPart = true
+           case Not(f) => {
+             if (!getDolphinDBPartitionBySingleFilter(partCol,Array(partiVal),partiType,Array(f))) {
+               flagPart = true
+             }
            }
-         }
-         case LessThanOrEqual(attr, value) => {
-           var userSec : String = null
-           if (value.toString.contains(" ") || value.toString.contains("T")) { userSec = value.toString.split("[ T]")(1) }
-           else userSec = value.toString
-           val userSecInt = Utils.countSeconds(LocalTime.parse(userSec))
-           if ((attr.equalsIgnoreCase(partCol) &&
-             partSecInt <= userSecInt)) {
-             flagPart = true
+           case Or(f1, f2) => {
+             if (getDolphinDBPartitionBySingleFilter(partCol, Array(partiVal),partiType, Array(f1)) ||
+               getDolphinDBPartitionBySingleFilter(partCol, Array(partiVal),partiType, Array(f2))) {
+               flagPart = true
+             }
            }
-         }
-         case GreaterThanOrEqual(attr, value) => {
-           var userSec : String = null
-           if (value.toString.contains(" ") || value.toString.contains("T")) { userSec = value.toString.split("[ T]")(1) }
-           else userSec = value.toString
-           val userSecInt = Utils.countSeconds(LocalTime.parse(userSec))
-           if ((attr.equalsIgnoreCase(partCol) &&
-             partSecInt >= userSecInt)) {
-             flagPart = true
+           case And(f1, f2) => {
+             if (getDolphinDBPartitionBySingleFilter(partCol, Array(partiVal),partiType, Array(f1)) &&
+               getDolphinDBPartitionBySingleFilter(partCol, Array(partiVal),partiType, Array(f2))) {
+               flagPart = true
+             }
            }
-         }
-         case In(attr, value) => {
-           var vin = false
-           value.foreach(v => {
+           case _ =>
+         })
+//         flagPart
+       } else if (partType.equals("SECOND")) {
+//         var flagPart = false
+         val partSecInt = Utils.countSeconds(LocalTime.parse(partiVal))
+         partFilter.foreach(f => f match {
+           case EqualTo(attr, value) => {
              var userSec : String = null
-             if (v.toString.contains(" ") || v.toString.contains("T")) { userSec = v.toString.split("[ T]")(1) }
-             else userSec = v.toString
+             if (value.toString.contains(" ") || value.toString.contains("T")) { userSec = value.toString.split("[ T]")(1) }
+             else userSec = value.toString
              val userSecInt = Utils.countSeconds(LocalTime.parse(userSec))
-             if (partSecInt == userSecInt) vin = true
-           })
-           if (attr.equalsIgnoreCase(partCol) && vin) {
-             flagPart = true
+             if ((attr.equalsIgnoreCase(partCol) &&
+               partSecInt == userSecInt)) {
+               flagPart = true
+             }
            }
-         }
-         case Not(f) => {
-           if (!getDolphinDBPartitionBySingleFilter(partCol,partiVal,Array(f))) {
-             flagPart = true
+           case LessThan(attr, value) => {
+             var userSec : String = null
+             if (value.toString.contains(" ") || value.toString.contains("T")) { userSec = value.toString.split("[ T]")(1) }
+             else userSec = value.toString
+             val userSecInt = Utils.countSeconds(LocalTime.parse(userSec))
+             if ((attr.equalsIgnoreCase(partCol) &&
+               partSecInt < userSecInt)) {
+               flagPart = true
+             }
            }
-         }
-         case Or(f1, f2) => {
-           if (getDolphinDBPartitionBySingleFilter(partCol, partiVal, Array(f1)) ||
-             getDolphinDBPartitionBySingleFilter(partCol, partiVal, Array(f2))) {
-             flagPart = true
+           case GreaterThan(attr, value) => {
+             var userSec : String = null
+             if (value.toString.contains(" ") || value.toString.contains("T")) { userSec = value.toString.split("[ T]")(1) }
+             else userSec = value.toString
+             val userSecInt = Utils.countSeconds(LocalTime.parse(userSec))
+             if ((attr.equalsIgnoreCase(partCol) &&
+               partSecInt > userSecInt)) {
+               flagPart = true
+             }
            }
-         }
-         case And(f1, f2) => {
-           if (getDolphinDBPartitionBySingleFilter(partCol, partiVal, Array(f1)) &&
-             getDolphinDBPartitionBySingleFilter(partCol, partiVal, Array(f2))) {
-             flagPart = true
+           case LessThanOrEqual(attr, value) => {
+             var userSec : String = null
+             if (value.toString.contains(" ") || value.toString.contains("T")) { userSec = value.toString.split("[ T]")(1) }
+             else userSec = value.toString
+             val userSecInt = Utils.countSeconds(LocalTime.parse(userSec))
+             if ((attr.equalsIgnoreCase(partCol) &&
+               partSecInt <= userSecInt)) {
+               flagPart = true
+             }
            }
-         }
-         case _ =>
-       })
-       flagPart
-     } else if (partType.equals("DATETIME")) {
-       var flagPart = false
-       val partDTInt = Utils.countSeconds(LocalDateTime.parse(partiVal.split("[ T]")(0).replace(".", "-")
-                  + "T" + partiVal.split("[ T}")(1)))
-       partFilter.foreach(f => f match {
-         case EqualTo(attr, value) => {
-           var userDT : String = null
-           if (value.toString.contains(" ")) { userDT = value.toString.replace(" ", "T") }
-           else userDT = value.toString
-           val userDTInt = Utils.countSeconds(LocalDateTime.parse(userDT))
-           if ((attr.equalsIgnoreCase(partCol) &&
-             partDTInt == userDTInt)) {
-             flagPart = true
+           case GreaterThanOrEqual(attr, value) => {
+             var userSec : String = null
+             if (value.toString.contains(" ") || value.toString.contains("T")) { userSec = value.toString.split("[ T]")(1) }
+             else userSec = value.toString
+             val userSecInt = Utils.countSeconds(LocalTime.parse(userSec))
+             if ((attr.equalsIgnoreCase(partCol) &&
+               partSecInt >= userSecInt)) {
+               flagPart = true
+             }
            }
-         }
-         case LessThan(attr, value) => {
-           var userDT : String = null
-           if (value.toString.contains(" ")) { userDT = value.toString.replace(" ", "T") }
-           else userDT = value.toString
-           val userDTInt = Utils.countSeconds(LocalDateTime.parse(userDT))
-           if ((attr.equalsIgnoreCase(partCol) &&
-             partDTInt < userDTInt)) {
-             flagPart = true
+           case In(attr, value) => {
+             var vin = false
+             value.foreach(v => {
+               var userSec : String = null
+               if (v.toString.contains(" ") || v.toString.contains("T")) { userSec = v.toString.split("[ T]")(1) }
+               else userSec = v.toString
+               val userSecInt = Utils.countSeconds(LocalTime.parse(userSec))
+               if (partSecInt == userSecInt) vin = true
+             })
+             if (attr.equalsIgnoreCase(partCol) && vin) {
+               flagPart = true
+             }
            }
-         }
-         case GreaterThan(attr, value) => {
-           var userDT : String = null
-           if (value.toString.contains(" ")) { userDT = value.toString.replace(" ", "T") }
-           else userDT = value.toString
-           val userDTInt = Utils.countSeconds(LocalDateTime.parse(userDT))
-           if ((attr.equalsIgnoreCase(partCol) &&
-             partDTInt > userDTInt)) {
-             flagPart = true
+           case Not(f) => {
+             if (!getDolphinDBPartitionBySingleFilter(partCol,Array(partiVal),partiType,Array(f))) {
+               flagPart = true
+             }
            }
-         }
-         case LessThanOrEqual(attr, value) => {
-           var userDT : String = null
-           if (value.toString.contains(" ")) { userDT = value.toString.replace(" ", "T") }
-           else userDT = value.toString
-           val userDTInt = Utils.countSeconds(LocalDateTime.parse(userDT))
-           if ((attr.equalsIgnoreCase(partCol) &&
-             partDTInt <= userDTInt)) {
-             flagPart = true
+           case Or(f1, f2) => {
+             if (getDolphinDBPartitionBySingleFilter(partCol, Array(partiVal),partiType, Array(f1)) ||
+               getDolphinDBPartitionBySingleFilter(partCol, Array(partiVal),partiType, Array(f2))) {
+               flagPart = true
+             }
            }
-         }
-         case GreaterThanOrEqual(attr, value) => {
-           var userDT : String = null
-           if (value.toString.contains(" ")) { userDT = value.toString.replace(" ", "T") }
-           else userDT = value.toString
-           val userDTInt = Utils.countSeconds(LocalDateTime.parse(userDT))
-           if ((attr.equalsIgnoreCase(partCol) &&
-             partDTInt >= userDTInt)) {
-             flagPart = true
+           case And(f1, f2) => {
+             if (getDolphinDBPartitionBySingleFilter(partCol, Array(partiVal),partiType, Array(f1)) &&
+               getDolphinDBPartitionBySingleFilter(partCol, Array(partiVal),partiType, Array(f2))) {
+               flagPart = true
+             }
            }
-         }
-         case In(attr, value) => {
-           var vin = false
-           value.foreach(v => {
+           case _ =>
+         })
+//         flagPart
+       } else if (partType.equals("DATETIME")) {
+//         var flagPart = false
+         val partDTInt = Utils.countSeconds(LocalDateTime.parse(partiVal.split("[ T]")(0).replace(".", "-")
+                    + "T" + partiVal.split("[ T}")(1)))
+         partFilter.foreach(f => f match {
+           case EqualTo(attr, value) => {
              var userDT : String = null
-             if (v.toString.contains(" ")) { userDT = v.toString.replace(" ", "T") }
-             else userDT = v.toString
-             val userSecInt = Utils.countSeconds(LocalDateTime.parse(userDT))
-             if (partDTInt == userSecInt) vin = true
-           })
-           if (attr.equalsIgnoreCase(partCol) && vin) {
-             flagPart = true
+             if (value.toString.contains(" ")) { userDT = value.toString.replace(" ", "T") }
+             else userDT = value.toString
+             val userDTInt = Utils.countSeconds(LocalDateTime.parse(userDT))
+             if ((attr.equalsIgnoreCase(partCol) &&
+               partDTInt == userDTInt)) {
+               flagPart = true
+             }
            }
-         }
-         case Not(f) => {
-           if (!getDolphinDBPartitionBySingleFilter(partCol,partiVal,Array(f))) {
-             flagPart = true
+           case LessThan(attr, value) => {
+             var userDT : String = null
+             if (value.toString.contains(" ")) { userDT = value.toString.replace(" ", "T") }
+             else userDT = value.toString
+             val userDTInt = Utils.countSeconds(LocalDateTime.parse(userDT))
+             if ((attr.equalsIgnoreCase(partCol) &&
+               partDTInt < userDTInt)) {
+               flagPart = true
+             }
            }
-         }
-         case Or(f1, f2) => {
-           if (getDolphinDBPartitionBySingleFilter(partCol, partiVal, Array(f1)) ||
-             getDolphinDBPartitionBySingleFilter(partCol, partiVal, Array(f2))) {
-             flagPart = true
+           case GreaterThan(attr, value) => {
+             var userDT : String = null
+             if (value.toString.contains(" ")) { userDT = value.toString.replace(" ", "T") }
+             else userDT = value.toString
+             val userDTInt = Utils.countSeconds(LocalDateTime.parse(userDT))
+             if ((attr.equalsIgnoreCase(partCol) &&
+               partDTInt > userDTInt)) {
+               flagPart = true
+             }
            }
-         }
-         case And(f1, f2) => {
-           if (getDolphinDBPartitionBySingleFilter(partCol, partiVal, Array(f1)) &&
-             getDolphinDBPartitionBySingleFilter(partCol, partiVal, Array(f2))) {
-             flagPart = true
+           case LessThanOrEqual(attr, value) => {
+             var userDT : String = null
+             if (value.toString.contains(" ")) { userDT = value.toString.replace(" ", "T") }
+             else userDT = value.toString
+             val userDTInt = Utils.countSeconds(LocalDateTime.parse(userDT))
+             if ((attr.equalsIgnoreCase(partCol) &&
+               partDTInt <= userDTInt)) {
+               flagPart = true
+             }
            }
-         }
-         case _ =>
-       })
-       flagPart
-     } else if (partType.equals("TIMESTAMP")) {
-       var flagPart = false
-       val partTMInt = Utils.countMilliseconds(LocalDateTime.parse(partiVal.split("[ T]")(0).replace(".", "-")
-         + "T" + partiVal.split("[ T}")(1)))
-       partFilter.foreach(f => f match {
-         case EqualTo(attr, value) => {
-           var userTM : String = null
-           if (value.toString.contains(" ")) { userTM = value.toString.replace(" ", "T") }
-           else userTM = value.toString
-           val userTMInt = Utils.countMilliseconds(LocalDateTime.parse(userTM))
-           if ((attr.equalsIgnoreCase(partCol) &&
-             partTMInt == userTMInt)) {
-             flagPart = true
+           case GreaterThanOrEqual(attr, value) => {
+             var userDT : String = null
+             if (value.toString.contains(" ")) { userDT = value.toString.replace(" ", "T") }
+             else userDT = value.toString
+             val userDTInt = Utils.countSeconds(LocalDateTime.parse(userDT))
+             if ((attr.equalsIgnoreCase(partCol) &&
+               partDTInt >= userDTInt)) {
+               flagPart = true
+             }
            }
-         }
-         case LessThan(attr, value) => {
-           var userTM : String = null
-           if (value.toString.contains(" ")) { userTM = value.toString.replace(" ", "T") }
-           else userTM = value.toString
-           val userTMInt = Utils.countMilliseconds(LocalDateTime.parse(userTM))
-           if ((attr.equalsIgnoreCase(partCol) &&
-             partTMInt < userTMInt)) {
-             flagPart = true
+           case In(attr, value) => {
+             var vin = false
+             value.foreach(v => {
+               var userDT : String = null
+               if (v.toString.contains(" ")) { userDT = v.toString.replace(" ", "T") }
+               else userDT = v.toString
+               val userSecInt = Utils.countSeconds(LocalDateTime.parse(userDT))
+               if (partDTInt == userSecInt) vin = true
+             })
+             if (attr.equalsIgnoreCase(partCol) && vin) {
+               flagPart = true
+             }
            }
-         }
-         case GreaterThan(attr, value) => {
-           var userTM : String = null
-           if (value.toString.contains(" ")) { userTM = value.toString.replace(" ", "T") }
-           else userTM = value.toString
-           val userTMInt = Utils.countMilliseconds(LocalDateTime.parse(userTM))
-           if ((attr.equalsIgnoreCase(partCol) &&
-             partTMInt > userTMInt)) {
-             flagPart = true
+           case Not(f) => {
+             if (!getDolphinDBPartitionBySingleFilter(partCol,Array(partiVal),partiType,Array(f))) {
+               flagPart = true
+             }
            }
-         }
-         case LessThanOrEqual(attr, value) => {
-           var userTM : String = null
-           if (value.toString.contains(" ")) { userTM = value.toString.replace(" ", "T") }
-           else userTM = value.toString
-           val userTMInt = Utils.countMilliseconds(LocalDateTime.parse(userTM))
-           if ((attr.equalsIgnoreCase(partCol) &&
-             partTMInt <= userTMInt)) {
-             flagPart = true
+           case Or(f1, f2) => {
+             if (getDolphinDBPartitionBySingleFilter(partCol, Array(partiVal),partiType, Array(f1)) ||
+               getDolphinDBPartitionBySingleFilter(partCol, Array(partiVal),partiType, Array(f2))) {
+               flagPart = true
+             }
            }
-         }
-         case GreaterThanOrEqual(attr, value) => {
-           var userTM : String = null
-           if (value.toString.contains(" ")) { userTM = value.toString.replace(" ", "T") }
-           else userTM = value.toString
-           val userTMInt = Utils.countMilliseconds(LocalDateTime.parse(userTM))
-           if ((attr.equalsIgnoreCase(partCol) &&
-             partTMInt >= userTMInt)) {
-             flagPart = true
+           case And(f1, f2) => {
+             if (getDolphinDBPartitionBySingleFilter(partCol, Array(partiVal),partiType, Array(f1)) &&
+               getDolphinDBPartitionBySingleFilter(partCol, Array(partiVal),partiType, Array(f2))) {
+               flagPart = true
+             }
            }
-         }
-         case In(attr, value) => {
-           var vin = false
-           value.foreach(v => {
+           case _ =>
+         })
+//         flagPart
+       } else if (partType.equals("TIMESTAMP")) {
+//         var flagPart = false
+         val partTMInt = Utils.countMilliseconds(LocalDateTime.parse(partiVal.split("[ T]")(0).replace(".", "-")
+           + "T" + partiVal.split("[ T}")(1)))
+         partFilter.foreach(f => f match {
+           case EqualTo(attr, value) => {
              var userTM : String = null
-             if (v.toString.contains(" ")) { userTM = v.toString.replace(" ", "T") }
-             else userTM = v.toString
+             if (value.toString.contains(" ")) { userTM = value.toString.replace(" ", "T") }
+             else userTM = value.toString
              val userTMInt = Utils.countMilliseconds(LocalDateTime.parse(userTM))
-             if (partTMInt == userTMInt) vin = true
-           })
-           if (attr.equalsIgnoreCase(partCol) && vin) {
-             flagPart = true
+             if ((attr.equalsIgnoreCase(partCol) &&
+               partTMInt == userTMInt)) {
+               flagPart = true
+             }
            }
-         }
-         case Not(f) => {
-           if (!getDolphinDBPartitionBySingleFilter(partCol,partiVal,Array(f))) {
-             flagPart = true
+           case LessThan(attr, value) => {
+             var userTM : String = null
+             if (value.toString.contains(" ")) { userTM = value.toString.replace(" ", "T") }
+             else userTM = value.toString
+             val userTMInt = Utils.countMilliseconds(LocalDateTime.parse(userTM))
+             if ((attr.equalsIgnoreCase(partCol) &&
+               partTMInt < userTMInt)) {
+               flagPart = true
+             }
            }
-         }
-         case Or(f1, f2) => {
-           if (getDolphinDBPartitionBySingleFilter(partCol, partiVal, Array(f1)) ||
-             getDolphinDBPartitionBySingleFilter(partCol, partiVal, Array(f2))) {
-             flagPart = true
+           case GreaterThan(attr, value) => {
+             var userTM : String = null
+             if (value.toString.contains(" ")) { userTM = value.toString.replace(" ", "T") }
+             else userTM = value.toString
+             val userTMInt = Utils.countMilliseconds(LocalDateTime.parse(userTM))
+             if ((attr.equalsIgnoreCase(partCol) &&
+               partTMInt > userTMInt)) {
+               flagPart = true
+             }
            }
-         }
-         case And(f1, f2) => {
-           if (getDolphinDBPartitionBySingleFilter(partCol, partiVal, Array(f1)) &&
-             getDolphinDBPartitionBySingleFilter(partCol, partiVal, Array(f2))) {
-             flagPart = true
+           case LessThanOrEqual(attr, value) => {
+             var userTM : String = null
+             if (value.toString.contains(" ")) { userTM = value.toString.replace(" ", "T") }
+             else userTM = value.toString
+             val userTMInt = Utils.countMilliseconds(LocalDateTime.parse(userTM))
+             if ((attr.equalsIgnoreCase(partCol) &&
+               partTMInt <= userTMInt)) {
+               flagPart = true
+             }
            }
-         }
-         case _ =>
-       })
-       flagPart
-     } else if (partType.equals("NANOTIME")) {
-       var flagPart = false
-       val partNTLong = Utils.countNanoseconds(LocalTime.parse(partiVal))
-       partFilter.foreach(f => f match {
-         case EqualTo(attr, value) => {
-           var userNT : String = null
-           if (value.toString.contains(" ")|| value.toString.contains("T")) { userNT = value.toString.split("[ T]")(1) }
-           else userNT = value.toString
-           val userNTLong = Utils.countNanoseconds(LocalTime.parse(userNT))
-           if ((attr.equalsIgnoreCase(partCol) &&
-             partNTLong == userNTLong)) {
-             flagPart = true
+           case GreaterThanOrEqual(attr, value) => {
+             var userTM : String = null
+             if (value.toString.contains(" ")) { userTM = value.toString.replace(" ", "T") }
+             else userTM = value.toString
+             val userTMInt = Utils.countMilliseconds(LocalDateTime.parse(userTM))
+             if ((attr.equalsIgnoreCase(partCol) &&
+               partTMInt >= userTMInt)) {
+               flagPart = true
+             }
            }
-         }
-         case LessThan(attr, value) => {
-           var userNT : String = null
-           if (value.toString.contains(" ")|| value.toString.contains("T")) { userNT = value.toString.split("[ T]")(1) }
-           else userNT = value.toString
-           val userNTLong = Utils.countNanoseconds(LocalTime.parse(userNT))
-           if ((attr.equalsIgnoreCase(partCol) &&
-             partNTLong < userNTLong)) {
-             flagPart = true
+           case In(attr, value) => {
+             var vin = false
+             value.foreach(v => {
+               var userTM : String = null
+               if (v.toString.contains(" ")) { userTM = v.toString.replace(" ", "T") }
+               else userTM = v.toString
+               val userTMInt = Utils.countMilliseconds(LocalDateTime.parse(userTM))
+               if (partTMInt == userTMInt) vin = true
+             })
+             if (attr.equalsIgnoreCase(partCol) && vin) {
+               flagPart = true
+             }
            }
-         }
-         case GreaterThan(attr, value) => {
-           var userNT : String = null
-           if (value.toString.contains(" ")|| value.toString.contains("T")) { userNT = value.toString.split("[ T]")(1) }
-           else userNT = value.toString
-           val userNTLong = Utils.countNanoseconds(LocalTime.parse(userNT))
-           if ((attr.equalsIgnoreCase(partCol) &&
-             partNTLong > userNTLong)) {
-             flagPart = true
+           case Not(f) => {
+             if (!getDolphinDBPartitionBySingleFilter(partCol,Array(partiVal),partiType,Array(f))) {
+               flagPart = true
+             }
            }
-         }
-         case LessThanOrEqual(attr, value) => {
-           var userNT : String = null
-           if (value.toString.contains(" ")|| value.toString.contains("T")) { userNT = value.toString.split("[ T]")(1) }
-           else userNT = value.toString
-           val userNTLong = Utils.countNanoseconds(LocalTime.parse(userNT))
-           if ((attr.equalsIgnoreCase(partCol) &&
-             partNTLong <= userNTLong)) {
-             flagPart = true
+           case Or(f1, f2) => {
+             if (getDolphinDBPartitionBySingleFilter(partCol, Array(partiVal),partiType, Array(f1)) ||
+               getDolphinDBPartitionBySingleFilter(partCol, Array(partiVal),partiType, Array(f2))) {
+               flagPart = true
+             }
            }
-         }
-         case GreaterThanOrEqual(attr, value) => {
-           var userNT : String = null
-           if (value.toString.contains(" ")|| value.toString.contains("T")) { userNT = value.toString.split("[ T]")(1) }
-           else userNT = value.toString
-           val userNTLong = Utils.countNanoseconds(LocalTime.parse(userNT))
-           if ((attr.equalsIgnoreCase(partCol) &&
-             partNTLong >= userNTLong)) {
-             flagPart = true
+           case And(f1, f2) => {
+             if (getDolphinDBPartitionBySingleFilter(partCol, Array(partiVal),partiType, Array(f1)) &&
+               getDolphinDBPartitionBySingleFilter(partCol, Array(partiVal),partiType, Array(f2))) {
+               flagPart = true
+             }
            }
-         }
-         case In(attr, value) => {
-           var vin = false
-           value.foreach(v => {
+           case _ =>
+         })
+//         flagPart
+       } else if (partType.equals("NANOTIME")) {
+//         var flagPart = false
+         val partNTLong = Utils.countNanoseconds(LocalTime.parse(partiVal))
+         partFilter.foreach(f => f match {
+           case EqualTo(attr, value) => {
              var userNT : String = null
-             if (v.toString.contains(" ") || value.toString.contains("T")) { userNT = v.toString.split("[ T]")(1) }
-             else userNT = v.toString
-             val userNTLong = Utils.countMilliseconds(LocalDateTime.parse(userNT))
-             if (partNTLong == userNTLong) vin = true
-           })
-           if (attr.equalsIgnoreCase(partCol) && vin) {
-             flagPart = true
+             if (value.toString.contains(" ")|| value.toString.contains("T")) { userNT = value.toString.split("[ T]")(1) }
+             else userNT = value.toString
+             val userNTLong = Utils.countNanoseconds(LocalTime.parse(userNT))
+             if ((attr.equalsIgnoreCase(partCol) &&
+               partNTLong == userNTLong)) {
+               flagPart = true
+             }
            }
-         }
-         case Not(f) => {
-           if (!getDolphinDBPartitionBySingleFilter(partCol,partiVal,Array(f))) {
-             flagPart = true
+           case LessThan(attr, value) => {
+             var userNT : String = null
+             if (value.toString.contains(" ")|| value.toString.contains("T")) { userNT = value.toString.split("[ T]")(1) }
+             else userNT = value.toString
+             val userNTLong = Utils.countNanoseconds(LocalTime.parse(userNT))
+             if ((attr.equalsIgnoreCase(partCol) &&
+               partNTLong < userNTLong)) {
+               flagPart = true
+             }
            }
-         }
-         case Or(f1, f2) => {
-           if (getDolphinDBPartitionBySingleFilter(partCol, partiVal, Array(f1)) ||
-             getDolphinDBPartitionBySingleFilter(partCol, partiVal, Array(f2))) {
-             flagPart = true
+           case GreaterThan(attr, value) => {
+             var userNT : String = null
+             if (value.toString.contains(" ")|| value.toString.contains("T")) { userNT = value.toString.split("[ T]")(1) }
+             else userNT = value.toString
+             val userNTLong = Utils.countNanoseconds(LocalTime.parse(userNT))
+             if ((attr.equalsIgnoreCase(partCol) &&
+               partNTLong > userNTLong)) {
+               flagPart = true
+             }
            }
-         }
-         case And(f1, f2) => {
-           if (getDolphinDBPartitionBySingleFilter(partCol, partiVal, Array(f1)) &&
-             getDolphinDBPartitionBySingleFilter(partCol, partiVal, Array(f2))) {
-             flagPart = true
+           case LessThanOrEqual(attr, value) => {
+             var userNT : String = null
+             if (value.toString.contains(" ")|| value.toString.contains("T")) { userNT = value.toString.split("[ T]")(1) }
+             else userNT = value.toString
+             val userNTLong = Utils.countNanoseconds(LocalTime.parse(userNT))
+             if ((attr.equalsIgnoreCase(partCol) &&
+               partNTLong <= userNTLong)) {
+               flagPart = true
+             }
            }
-         }
-         case _ =>
-       })
-       flagPart
-     } else if (partType.equals("NANOTIMESTAMP")) {
-       var flagPart = false
-       val partNTSLong = Utils.countNanoseconds(LocalDateTime.parse(partiVal.split("[ T]")(0).replace(".", "-")
-          + "T" + partiVal.split("[ T]")(1)))
-       partFilter.foreach(f => f match {
-         case EqualTo(attr, value) => {
-           var userNTS : String = null
-           if (value.toString.contains(" ")) { userNTS = value.toString.replace(" ", "T") }
-           else userNTS = value.toString
-           val userNTSLong = Utils.countNanoseconds(LocalDateTime.parse(userNTS))
-           if ((attr.equalsIgnoreCase(partCol) &&
-             partNTSLong == userNTSLong)) {
-             flagPart = true
+           case GreaterThanOrEqual(attr, value) => {
+             var userNT : String = null
+             if (value.toString.contains(" ")|| value.toString.contains("T")) { userNT = value.toString.split("[ T]")(1) }
+             else userNT = value.toString
+             val userNTLong = Utils.countNanoseconds(LocalTime.parse(userNT))
+             if ((attr.equalsIgnoreCase(partCol) &&
+               partNTLong >= userNTLong)) {
+               flagPart = true
+             }
            }
-         }
-         case LessThan(attr, value) => {
-           var userNTS : String = null
-           if (value.toString.contains(" ")) { userNTS = value.toString.replace(" ", "T") }
-           else userNTS = value.toString
-           val userNTSLong = Utils.countNanoseconds(LocalDateTime.parse(userNTS))
-           if ((attr.equalsIgnoreCase(partCol) &&
-             partNTSLong < userNTSLong)) {
-             flagPart = true
+           case In(attr, value) => {
+             var vin = false
+             value.foreach(v => {
+               var userNT : String = null
+               if (v.toString.contains(" ") || value.toString.contains("T")) { userNT = v.toString.split("[ T]")(1) }
+               else userNT = v.toString
+               val userNTLong = Utils.countMilliseconds(LocalDateTime.parse(userNT))
+               if (partNTLong == userNTLong) vin = true
+             })
+             if (attr.equalsIgnoreCase(partCol) && vin) {
+               flagPart = true
+             }
            }
-         }
-         case GreaterThan(attr, value) => {
-           var userNTS : String = null
-           if (value.toString.contains(" ")) { userNTS = value.toString.replace(" ", "T") }
-           else userNTS = value.toString
-           val userNTSLong = Utils.countNanoseconds(LocalDateTime.parse(userNTS))
-           if ((attr.equalsIgnoreCase(partCol) &&
-             partNTSLong > userNTSLong)) {
-             flagPart = true
+           case Not(f) => {
+             if (!getDolphinDBPartitionBySingleFilter(partCol,Array(partiVal),partiType,Array(f))) {
+               flagPart = true
+             }
            }
-         }
-         case LessThanOrEqual(attr, value) => {
-           var userNTS : String = null
-           if (value.toString.contains(" ")) { userNTS = value.toString.replace(" ", "T") }
-           else userNTS = value.toString
-           val userNTSLong = Utils.countNanoseconds(LocalDateTime.parse(userNTS))
-           if ((attr.equalsIgnoreCase(partCol) &&
-             partNTSLong <= userNTSLong)) {
-             flagPart = true
+           case Or(f1, f2) => {
+             if (getDolphinDBPartitionBySingleFilter(partCol, Array(partiVal),partiType, Array(f1)) ||
+               getDolphinDBPartitionBySingleFilter(partCol, Array(partiVal),partiType, Array(f2))) {
+               flagPart = true
+             }
            }
-         }
-         case GreaterThanOrEqual(attr, value) => {
-           var userNTS : String = null
-           if (value.toString.contains(" ")) { userNTS = value.toString.replace(" ", "T") }
-           else userNTS = value.toString
-           val userNTSLong = Utils.countNanoseconds(LocalDateTime.parse(userNTS))
-           if ((attr.equalsIgnoreCase(partCol) &&
-             partNTSLong >= userNTSLong)) {
-             flagPart = true
+           case And(f1, f2) => {
+             if (getDolphinDBPartitionBySingleFilter(partCol, Array(partiVal),partiType, Array(f1)) &&
+               getDolphinDBPartitionBySingleFilter(partCol, Array(partiVal),partiType, Array(f2))) {
+               flagPart = true
+             }
            }
-         }
-         case In(attr, value) => {
-           var vin = false
-           value.foreach(v => {
+           case _ =>
+         })
+//         flagPart
+       } else if (partType.equals("NANOTIMESTAMP")) {
+//         var flagPart = false
+         val partNTSLong = Utils.countNanoseconds(LocalDateTime.parse(partiVal.split("[ T]")(0).replace(".", "-")
+            + "T" + partiVal.split("[ T]")(1)))
+         partFilter.foreach(f => f match {
+           case EqualTo(attr, value) => {
              var userNTS : String = null
-             if (v.toString.contains(" ")) { userNTS = v.toString.replace(" ", "T") }
-             else userNTS = v.toString
+             if (value.toString.contains(" ")) { userNTS = value.toString.replace(" ", "T") }
+             else userNTS = value.toString
              val userNTSLong = Utils.countNanoseconds(LocalDateTime.parse(userNTS))
-             if (partNTSLong == userNTSLong) vin = true
-           })
-           if (attr.equalsIgnoreCase(partCol) && vin) {
-             flagPart = true
+             if ((attr.equalsIgnoreCase(partCol) &&
+               partNTSLong == userNTSLong)) {
+               flagPart = true
+             }
            }
-         }
-         case Not(f) => {
-           if (!getDolphinDBPartitionBySingleFilter(partCol,partiVal,Array(f))) {
-             flagPart = true
+           case LessThan(attr, value) => {
+             var userNTS : String = null
+             if (value.toString.contains(" ")) { userNTS = value.toString.replace(" ", "T") }
+             else userNTS = value.toString
+             val userNTSLong = Utils.countNanoseconds(LocalDateTime.parse(userNTS))
+             if ((attr.equalsIgnoreCase(partCol) &&
+               partNTSLong < userNTSLong)) {
+               flagPart = true
+             }
            }
-         }
-         case Or(f1, f2) => {
-           if (getDolphinDBPartitionBySingleFilter(partCol, partiVal, Array(f1)) ||
-             getDolphinDBPartitionBySingleFilter(partCol, partiVal, Array(f2))) {
-             flagPart = true
+           case GreaterThan(attr, value) => {
+             var userNTS : String = null
+             if (value.toString.contains(" ")) { userNTS = value.toString.replace(" ", "T") }
+             else userNTS = value.toString
+             val userNTSLong = Utils.countNanoseconds(LocalDateTime.parse(userNTS))
+             if ((attr.equalsIgnoreCase(partCol) &&
+               partNTSLong > userNTSLong)) {
+               flagPart = true
+             }
            }
-         }
-         case And(f1, f2) => {
-           if (getDolphinDBPartitionBySingleFilter(partCol, partiVal, Array(f1)) &&
-             getDolphinDBPartitionBySingleFilter(partCol, partiVal, Array(f2))) {
-             flagPart = true
+           case LessThanOrEqual(attr, value) => {
+             var userNTS : String = null
+             if (value.toString.contains(" ")) { userNTS = value.toString.replace(" ", "T") }
+             else userNTS = value.toString
+             val userNTSLong = Utils.countNanoseconds(LocalDateTime.parse(userNTS))
+             if ((attr.equalsIgnoreCase(partCol) &&
+               partNTSLong <= userNTSLong)) {
+               flagPart = true
+             }
            }
-         }
-         case _ =>
-       })
-       flagPart
-     } else if (partType.equals("DATE")) {
-       var flagPart = false
-       val partDInt = Utils.countDays(LocalDate.parse(partiVal.replace(".", "-")))
-       partFilter.foreach(f => f match {
-         case EqualTo(attr, value) => {
-           if ((attr.equalsIgnoreCase(partCol) &&
-             partDInt == Utils.countDays(LocalDate.parse(value.toString)))) {
-             flagPart = true
+           case GreaterThanOrEqual(attr, value) => {
+             var userNTS : String = null
+             if (value.toString.contains(" ")) { userNTS = value.toString.replace(" ", "T") }
+             else userNTS = value.toString
+             val userNTSLong = Utils.countNanoseconds(LocalDateTime.parse(userNTS))
+             if ((attr.equalsIgnoreCase(partCol) &&
+               partNTSLong >= userNTSLong)) {
+               flagPart = true
+             }
            }
-         }
-         case LessThan(attr, value) => {
-           if ((attr.equalsIgnoreCase(partCol) &&
-             partDInt < Utils.countDays(LocalDate.parse(value.toString)))) {
-             flagPart = true
+           case In(attr, value) => {
+             var vin = false
+             value.foreach(v => {
+               var userNTS : String = null
+               if (v.toString.contains(" ")) { userNTS = v.toString.replace(" ", "T") }
+               else userNTS = v.toString
+               val userNTSLong = Utils.countNanoseconds(LocalDateTime.parse(userNTS))
+               if (partNTSLong == userNTSLong) vin = true
+             })
+             if (attr.equalsIgnoreCase(partCol) && vin) {
+               flagPart = true
+             }
            }
-         }
-         case GreaterThan(attr, value) => {
-           if ((attr.equalsIgnoreCase(partCol) &&
-             partDInt > Utils.countDays(LocalDate.parse(value.toString)))) {
-             flagPart = true
+           case Not(f) => {
+             if (!getDolphinDBPartitionBySingleFilter(partCol,Array(partiVal),partiType,Array(f))) {
+               flagPart = true
+             }
            }
-         }
-         case LessThanOrEqual(attr, value) => {
-           if ((attr.equalsIgnoreCase(partCol) &&
-             partDInt <= Utils.countDays(LocalDate.parse(value.toString)))) {
-             flagPart = true
+           case Or(f1, f2) => {
+             if (getDolphinDBPartitionBySingleFilter(partCol, Array(partiVal),partiType, Array(f1)) ||
+               getDolphinDBPartitionBySingleFilter(partCol, Array(partiVal),partiType, Array(f2))) {
+               flagPart = true
+             }
            }
-         }
-         case GreaterThanOrEqual(attr, value) => {
-           if ((attr.equalsIgnoreCase(partCol) &&
-             partDInt >= Utils.countDays(LocalDate.parse(value.toString)))) {
-             flagPart = true
+           case And(f1, f2) => {
+             if (getDolphinDBPartitionBySingleFilter(partCol, Array(partiVal),partiType, Array(f1)) &&
+               getDolphinDBPartitionBySingleFilter(partCol, Array(partiVal),partiType, Array(f2))) {
+               flagPart = true
+             }
            }
-         }
-         case In(attr, value) => {
-           var vin = false
-           value.foreach(v => {
-             if (partDInt == Utils.countDays(LocalDate.parse(v.toString))) vin = true
-           })
-           if (attr.equalsIgnoreCase(partCol) && vin) {
-             flagPart = true
+           case _ =>
+         })
+//         flagPart
+       } else if (partType.equals("DATE")) {
+//         var flagPart = false
+         val partDInt = Utils.countDays(LocalDate.parse(partiVal.replace(".", "-")))
+         partFilter.foreach(f => f match {
+           case EqualTo(attr, value) => {
+             if ((attr.equalsIgnoreCase(partCol) &&
+               partDInt == Utils.countDays(LocalDate.parse(value.toString)))) {
+               flagPart = true
+             }
            }
-         }
-         case Not(f) => {
-           if (!getDolphinDBPartitionBySingleFilter(partCol,partiVal,Array(f))) {
-             flagPart = true
+           case LessThan(attr, value) => {
+             if ((attr.equalsIgnoreCase(partCol) &&
+               partDInt < Utils.countDays(LocalDate.parse(value.toString)))) {
+               flagPart = true
+             }
            }
-         }
-         case Or(f1, f2) => {
-           if (getDolphinDBPartitionBySingleFilter(partCol, partiVal, Array(f1)) ||
-             getDolphinDBPartitionBySingleFilter(partCol, partiVal, Array(f2))) {
-             flagPart = true
+           case GreaterThan(attr, value) => {
+             if ((attr.equalsIgnoreCase(partCol) &&
+               partDInt > Utils.countDays(LocalDate.parse(value.toString)))) {
+               flagPart = true
+             }
            }
-         }
-         case And(f1, f2) => {
-           if (getDolphinDBPartitionBySingleFilter(partCol, partiVal, Array(f1)) &&
-             getDolphinDBPartitionBySingleFilter(partCol, partiVal, Array(f2))) {
-             flagPart = true
+           case LessThanOrEqual(attr, value) => {
+             if ((attr.equalsIgnoreCase(partCol) &&
+               partDInt <= Utils.countDays(LocalDate.parse(value.toString)))) {
+               flagPart = true
+             }
            }
-         }
-         case _ =>
-       })
-       flagPart
-     } else {
-       false
-     }
+           case GreaterThanOrEqual(attr, value) => {
+             if ((attr.equalsIgnoreCase(partCol) &&
+               partDInt >= Utils.countDays(LocalDate.parse(value.toString)))) {
+               flagPart = true
+             }
+           }
+           case In(attr, value) => {
+             var vin = false
+             value.foreach(v => {
+               if (partDInt == Utils.countDays(LocalDate.parse(v.toString))) vin = true
+             })
+             if (attr.equalsIgnoreCase(partCol) && vin) {
+               flagPart = true
+             }
+           }
+           case Not(f) => {
+             if (!getDolphinDBPartitionBySingleFilter(partCol,Array(partiVal),partiType,Array(f))) {
+               flagPart = true
+             }
+           }
+           case Or(f1, f2) => {
+             if (getDolphinDBPartitionBySingleFilter(partCol, Array(partiVal),partiType, Array(f1)) ||
+               getDolphinDBPartitionBySingleFilter(partCol, Array(partiVal),partiType, Array(f2))) {
+               flagPart = true
+             }
+           }
+           case And(f1, f2) => {
+             if (getDolphinDBPartitionBySingleFilter(partCol, Array(partiVal),partiType, Array(f1)) &&
+               getDolphinDBPartitionBySingleFilter(partCol, Array(partiVal),partiType, Array(f2))) {
+               flagPart = true
+             }
+           }
+           case _ =>
+         })
+//         flagPart
+       } else {
+         flagPart = false
+       }
+//     }
+     flagPart
   }
 
 

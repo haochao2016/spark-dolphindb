@@ -8,5 +8,6 @@ import scala.collection.mutable.ArrayBuffer
 case class  DolphinDBPartition(var index : Int,
                                hosts : mutable.HashMap[String, ArrayBuffer[Int]],
                                partiCols : Array[String],
-                               partiVals : Array[String]) extends Partition
+                               partiTypes : Array[Int],
+                               partiVals : Array[Array[String]]) extends Partition
 

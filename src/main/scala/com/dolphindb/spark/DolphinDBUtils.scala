@@ -19,6 +19,16 @@ object DolphinDBUtils extends Logging{
   val DolphinDB_PER_NUM = 30000
 
   /**
+    * DolphinDB Table partition Type num
+    */
+  val DolphinDB_Partition_SEQ = 0
+  val DolphinDB_Partition_VALUE = 1
+  val DolphinDB_Partition_RANGE = 2
+  val DolphinDB_Partition_LIST = 3
+  val DolphinDB_Partition_COMPO = 4
+  val DolphinDB_Partition_HASH = 5
+
+  /**
     * Parses the user specified customSchema option value to DataFrame schema, and
     * returns a schema that is replaced by the custom schema's dataType if column name is matched.
     */
