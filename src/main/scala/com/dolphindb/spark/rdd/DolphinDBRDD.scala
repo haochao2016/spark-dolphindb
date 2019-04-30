@@ -292,15 +292,47 @@ private[spark] class DolphinDBRDD(
     if (part.partiCols != null && filterWhereClause.length > 0) {
       val partCondition = new mutable.StringBuilder()
       for (i <- 0 until(part.partiCols.length)) {
-        partCondition.append(part.partiCols(i) + " = ")
-        partCondition.append(part.partiVals(i) + " and ")
+        val partiType = DolphinDBRDD.originNameToType.get(part.partiCols(i)).get.toUpperCase()
+        partCondition.append(part.partiCols(i))
+
+        if (part.partiVals(i).length > 1) {
+          partCondition.append(" in ")
+          val partCIB = new mutable.StringBuilder("( ")
+          for (partCI <- part.partiVals(i)){
+            if (partiType.equals("STRING") || partiType.equals("SYMBOL")) partCIB.append( "\""+ partCI + "\"")
+            else partCIB.append(partCI)
+          }
+          partCIB.append(")")
+          partCondition.append(partCIB.toString())
+        } else {
+          partCondition.append(" = ")
+          if (partiType.equals("STRING") || partiType.equals("SYMBOL")) partCondition.append( "\""+ part.partiVals(i)(0) + "\"")
+          else partCondition.append(part.partiVals(i)(0))
+        }
+        partCondition.append(" and ")
       }
       " where " + partCondition.toString + s"($filterWhereClause)"
     } else if (part.partiCols != null) {
       val partCondition = new mutable.StringBuilder()
       for (i <- 0 until(part.partiCols.length)) {
-        partCondition.append(part.partiCols(i) + " = ")
-        partCondition.append(part.partiVals(i) + " and ")
+        val partiType = DolphinDBRDD.originNameToType.get(part.partiCols(i)).get.toUpperCase()
+        partCondition.append(part.partiCols(i))
+
+        if (part.partiVals(i).length > 1) {
+          partCondition.append(" in ")
+          val partCIB = new mutable.StringBuilder("( ")
+          for (partCI <- part.partiVals(i)){
+            if (partiType.equals("STRING") || partiType.equals("SYMBOL")) partCIB.append( "\""+ partCI + "\"")
+            else partCIB.append(partCI)
+          }
+          partCIB.append(")")
+          partCondition.append(partCIB.toString())
+        } else {
+          partCondition.append(" = ")
+          if (partiType.equals("STRING") || partiType.equals("SYMBOL")) partCondition.append( "\""+ part.partiVals(i)(0) + "\"")
+          else partCondition.append(part.partiVals(i)(0))
+        }
+        partCondition.append(" and ")
       }
       "where " + partCondition.substring(0, partCondition.lastIndexOf("and"))
     } else if (filterWhereClause.length > 0) {
@@ -329,11 +361,6 @@ private[spark] class DolphinDBRDD(
     context.addTaskCompletionListener(context => close())
 
     val inputMetrics = context.taskMetrics().inputMetrics
-    /**
-      * 新的分区要嵌入到SQL中
-      * 此处要链接查询dolhinDB datanode 的地址，从而实现很多的节点加载，
-      * 而不是只在一个数据节点上，从多个节点查询数据
-      */
 
     val part = parts.asInstanceOf[DolphinDBPartition]
     val hosts = part.hosts

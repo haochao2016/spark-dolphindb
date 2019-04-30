@@ -1745,8 +1745,6 @@ case class DolphinDBPartitioner(option: DolphinDBOptions) extends Serializable {
            case _ =>
          })
        } else if (partType.equals("TIMESTAMP")) {
-//         val partTMInt = Utils.countMilliseconds(LocalDateTime.parse(partiVal.split("[ T]")(0).replace(".", "-")
-//           + "T" + partiVal.split("[ T}")(1)))
          partFilter.foreach(f => f match {
            case EqualTo(attr, value) => {
              var typeFlag = false
