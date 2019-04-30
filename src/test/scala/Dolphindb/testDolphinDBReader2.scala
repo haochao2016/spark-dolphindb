@@ -1,20 +1,17 @@
 package Dolphindb
 
-
-import java.util.Properties
-
 import org.apache.spark.TaskContext
 import org.apache.spark.sql.SparkSession
 
-object testDolphinDBReader {
+object testDolphinDBReader2 {
 
   def main(args: Array[String]): Unit = {
-    val startTime = System.currentTimeMillis()
 
-    val spark = SparkSession.builder().appName("DolphinDBConn")
+    val spark = SparkSession.builder().appName("DolphinDBConn2")
       .master("local[2]")
       .getOrCreate()
 
+    val startTime = System.currentTimeMillis()
     val sd = spark.read.format("com.dolphindb.spark.DolphinDBProvider")
       .option("ip", "115.239.209.224")
       .option("port", 16961)
@@ -32,9 +29,8 @@ object testDolphinDBReader {
 
     val frame = spark.sql(
         s"""select BIDSIZ ,SYMBOL ,date, time from sd1 where
-              | Symbol='A' and
-              |  date = to_date('2007-08-13')
-              |  and BIDSIZ < 10
+              | date = to_date('2007-08-13')
+
               | """.stripMargin)
     frame.printSchema()
 
