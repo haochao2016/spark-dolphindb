@@ -28,7 +28,7 @@ object testDolphinDBWriter {
     sd.createTempView("sd1")
 
     val frame = spark.sql(
-      s"""select BIDSIZ ,SYMBOL ,date, time from sd1 where
+      s"""select * from sd1 where
          | Symbol='A' and
          |  date = to_date('2007-08-16')
          |  and BIDSIZ < 10

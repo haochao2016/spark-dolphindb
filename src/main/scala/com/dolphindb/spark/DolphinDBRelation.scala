@@ -51,7 +51,6 @@ private [spark] object DolphinDBRelation extends Logging {
 }
 
 
-
 case class DolphinDBRelation (
            parts : Array[Partition],
            options : DolphinDBOptions
