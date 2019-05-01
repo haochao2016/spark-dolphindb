@@ -2,14 +2,106 @@ package com.dolphindb.spark.schema
 
 import java.util
 
+import com.xxdb.DBConnection
 import com.xxdb.data._
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.types._
 
+import scala.collection.mutable
+import scala.collection.mutable.ArrayBuffer
+
 object DolphinDBSchema extends Logging{
 
   /**
+    *  Get DolphinDB partition table type
+    *  0 = Seq Partition
+    *  1 = Value Partition
+    *  2 = Range Partition
+    *  3 = List Partition
+    *  4 = Compo Partition
+    *  5 = Hash Partition
+    * @param conn
+    * @param option
+    */
+  def getPartitionType(conn: DBConnection, option: DolphinDBOptions) :Array[Int] = {
+    val table = option.table
+    val vector = conn.run(s"schema($table).partitionType")//.asInstanceOf[BasicStringVector]
+    if (vector.isInstanceOf[BasicIntVector]) {
+      val typeBuf = new ArrayBuffer[Int]()
+      val tyArr = vector.asInstanceOf[BasicIntVector]
+      for(i <- 0 until(tyArr.rows())) {
+        typeBuf += tyArr.getInt(i)
+      }
+      typeBuf.toArray
+    } else if (vector.isInstanceOf[BasicInt]) {
+      val ty = vector.asInstanceOf[BasicInt]
+      Array[Int](ty.getInt)
+    } else {
+      Array[Int]()
+    }
+  }
+
+  /**
+    * Get All DolphinDB DataNode Address
+    *
+    * @param conn
+    * @param option
+    */
+  def getAllDdataNodeAddr(conn : DBConnection, option: DolphinDBOptions) = {
+    val vector = conn.run(s"ctl = getControllerAlias();" +
+            s"  exec site from rpc(ctl,getClusterPerf) where mode = 0").asInstanceOf[BasicStringVector]
+    val addrBuffer = new mutable.HashMap[String, ArrayBuffer[Int]]()
+    for (i <- 0 until(vector.rows())) {
+      val addr = vector.get(i).toString.split(":")
+      val ports = addrBuffer.getOrElse(addr(0), new ArrayBuffer[Int]())
+      ports += addr(1).toInt
+      addrBuffer.put(addr(0), ports)
+    }
+    addrBuffer
+  }
+
+  /**
+    * Get DolphinDB Partition Values
+    *
+    * @param conn
+    * @param option
+    * @return
+    */
+  def getPartitionVals(conn: DBConnection, option: DolphinDBOptions): Vector = {
+    val table = option.table
+    val dbPath = option.dbPath
+    val vector = conn.run(s"schema($table).partitionSchema").asInstanceOf[Vector]
+    vector
+  }
+
+  /**
+    * Get partition columns from  the DolphinDB Partition table.
+    *
+    * @param option DolphinDBOptions
+    * @return
+    */
+  def getPartitionColumns(conn : DBConnection, option: DolphinDBOptions) : Array[String] = {
+    val table = option.table
+    val dbPath = option.dbPath
+    val partiCols = conn.run(s"${table}=database('${dbPath}').loadTable('${table}'); schema(${table}).partitionColumnName")
+    if (partiCols.isInstanceOf[com.xxdb.data.Void]) {
+      return Array[String]()
+    }
+    if (partiCols.isInstanceOf[BasicStringVector]) {
+      val vectorCol = partiCols.asInstanceOf[BasicStringVector]
+      val vectorBuf = new ArrayBuffer[String]()
+      for (i <- 0 until(vectorCol.rows())) {
+        vectorBuf += vectorCol.getString(i)
+      }
+      vectorBuf.toArray
+    } else {
+      Array(partiCols.asInstanceOf[BasicString].getString)
+    }
+  }
+
+  /**
     * Convert DolphinDB DataType to Spark DataType
+    *
     * @param originName dataName
     * @param originType dataType in DolphinDB
     * @return
@@ -39,7 +131,6 @@ object DolphinDBSchema extends Logging{
     case "SHORT" => StructField(originName, ShortType)
     case "CHAR" => StructField(originName, ByteType)
     case _ => StructField(originName, StringType)
-
   }
 
   /**
@@ -88,8 +179,6 @@ object DolphinDBSchema extends Logging{
         }
         vectors.add(new BasicByteVector(Array[Byte](value.charAt(0).toByte)))
       }
-
-
     }
   }
 

@@ -17,12 +17,12 @@ object testMysql {
 
     val url = "jdbc:mysql://115.239.209.189:3306/spark-conn?user=root&password=123456"
     val frame = spark.read
-      //        .option("partitionColumn", "code")
-      //      .option("lowerBound", 0)
-      //      .option("upperBound", 6)
-      //      .option("numPartitions", 3)
-      //      .jdbc(url, "mysqlConn", new Properties())
-      .jdbc(url, "taq", new Properties())
+              .option("partitionColumn", "id")
+            .option("lowerBound", 0)
+            .option("upperBound", 6)
+            .option("numPartitions", 3)
+            .jdbc(url, "mysqlConn", new Properties())
+//      .jdbc(url, "taq", new Properties())
     //    spark.read.jdbc
     frame.printSchema()
 

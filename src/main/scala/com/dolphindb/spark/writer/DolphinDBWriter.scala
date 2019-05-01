@@ -1,12 +1,10 @@
 package com.dolphindb.spark.writer
 
-import java.sql.Date
 import java.time.{LocalDate, LocalDateTime, LocalTime}
 import java.util
 
 import com.dolphindb.spark.DolphinDBUtils
 import com.dolphindb.spark.schema.DolphinDBOptions
-import com.xxdb.DBConnection
 import com.xxdb.data._
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.Row
@@ -15,19 +13,13 @@ import scala.collection.mutable.ArrayBuffer
 
 class DolphinDBWriter(options: DolphinDBOptions) extends Logging{
 
-  protected val conn = new DBConnection
-  private val ip = options.ip.get
-  private val port = options.port.get.toInt
-  private val user = options.user.get
-  private val password = options.password.get
   private val dbPath = options.dbPath
   private val table = options.table
-
+  val conn = DolphinDBUtils.createDolphinDBConn(options)
 
   /**
     *  Save Spark DataFrame into DolphinDB
-    * @param conn  a connection to dolphinDB
-    * @param it
+    * @param it  Iterator[Row]
     * @param name2Type  dolphinDB table schema ,
     *  example:
     * {{{
@@ -36,31 +28,12 @@ class DolphinDBWriter(options: DolphinDBOptions) extends Logging{
     *   price -> DOUBLE
     * }}}
     */
-  def save(conn : DBConnection, it: Iterator[Row], name2Type : Array[(String, String)]): Unit = {
-    ////////////////////////////////////////////////////////////////////////////////
-//    conn.connect(ip,port,user,password)
-//    val dhandle = options.dbPath.substring(options.dbPath.lastIndexOf("/") +1) + options.table
-//    val existDB = s"existsDatabase('$dbPath')"
+  def save( it: Iterator[Row], name2Type : Array[(String, String)]): Unit = {
 
-    /**
-      *  There are have no database or table throw a NoTableException
-      */
-//    if (conn.run(existDB) == null) {
-//      conn.run(s"db=database('$dbPath'); $table = db.loadTable('$table')")
-
-//    } else {
-//      try {
-//        conn.run(s"${dhandle}=database('$dbPath'); $table = ${dhandle}.loadTable('$table')")
-//      } catch {
-//        case e : java.io.IOException => throw new NoTableException(s" ip : ${ip}, port: ${port} . DolphinDB has no table : ${table} !")
-//      }
-//    }
-    /////////////////////////////////////////////////////////////////////////////////
     /**
       * DolphinDB table column names
       */
     val dolphindbNames = new util.ArrayList[String]()
-
     /**
       * contain all data that insert into DolphinDB
       */
@@ -180,14 +153,12 @@ class DolphinDBWriter(options: DolphinDBOptions) extends Logging{
          }
       }
 
-      if (dataBuffer(0).asInstanceOf[ArrayBuffer].size > DolphinDBUtils.DolphinDB_PER_NUM) {
+      if (dataBuffer(0).asInstanceOf[ArrayBuffer[Any]].size > DolphinDBUtils.DolphinDB_PER_NUM) {
         saveIntoDolphinDB(dataBuffer, name2Type, dolphindbNames)
       }
-
     }
-
     saveIntoDolphinDB(dataBuffer, name2Type, dolphindbNames)
-
+    conn.close()
   }
 
 
@@ -202,27 +173,27 @@ class DolphinDBWriter(options: DolphinDBOptions) extends Logging{
         case "STRING" =>
           vectors.add(new BasicStringVector(dataBuffer(i).asInstanceOf[ArrayBuffer[String]].toArray))
         case "DATE" =>
-          vectors.add(new BasicIntVector(dataBuffer(i).asInstanceOf[ArrayBuffer[Int]].toArray))
+          vectors.add(new BasicDateVector(dataBuffer(i).asInstanceOf[ArrayBuffer[Int]].toArray))
         case "MONTH" =>
-          vectors.add(new BasicIntVector(dataBuffer(i).asInstanceOf[ArrayBuffer[Int]].toArray))
+          vectors.add(new BasicMonthVector(dataBuffer(i).asInstanceOf[ArrayBuffer[Int]].toArray))
         case "TIME" =>
-          vectors.add(new BasicIntVector(dataBuffer(i).asInstanceOf[ArrayBuffer[Int]].toArray))
+          vectors.add(new BasicTimeVector(dataBuffer(i).asInstanceOf[ArrayBuffer[Int]].toArray))
         case "MINUTE" =>
-          vectors.add(new BasicIntVector(dataBuffer(i).asInstanceOf[ArrayBuffer[Int]].toArray))
+          vectors.add(new BasicMinuteVector(dataBuffer(i).asInstanceOf[ArrayBuffer[Int]].toArray))
         case "SECOND" =>
-          vectors.add(new BasicIntVector(dataBuffer(i).asInstanceOf[ArrayBuffer[Int]].toArray))
+          vectors.add(new BasicSecondVector(dataBuffer(i).asInstanceOf[ArrayBuffer[Int]].toArray))
         case "DATETIME" =>
-          vectors.add(new BasicIntVector(dataBuffer(i).asInstanceOf[ArrayBuffer[Int]].toArray))
+          vectors.add(new BasicDateTimeVector(dataBuffer(i).asInstanceOf[ArrayBuffer[Int]].toArray))
         case "TIMESTAMP" =>
-          vectors.add(new BasicLongVector(dataBuffer(i).asInstanceOf[ArrayBuffer[Long]].toArray))
+          vectors.add(new BasicTimestampVector(dataBuffer(i).asInstanceOf[ArrayBuffer[Long]].toArray))
         case "NANOTIME" =>
-          vectors.add(new BasicLongVector(dataBuffer(i).asInstanceOf[ArrayBuffer[Long]].toArray))
+          vectors.add(new BasicNanoTimeVector(dataBuffer(i).asInstanceOf[ArrayBuffer[Long]].toArray))
         case "NANOTIMESTAMP" =>
-          vectors.add(new BasicLongVector(dataBuffer(i).asInstanceOf[ArrayBuffer[Long]].toArray))
+          vectors.add(new BasicNanoTimestampVector(dataBuffer(i).asInstanceOf[ArrayBuffer[Long]].toArray))
         case "VOID" =>
         //              vectors.add(new BasicLongVector(dataBuffer(i).asInstanceOf[ArrayBuffer[Null]].toArray))
         case "BOOL" =>
-          vectors.add(new BasicByteVector(dataBuffer(i).asInstanceOf[ArrayBuffer[Byte]].toArray))
+          vectors.add(new BasicBooleanVector(dataBuffer(i).asInstanceOf[ArrayBuffer[Byte]].toArray))
         case "DOUBLE" =>
           vectors.add(new BasicDoubleVector(dataBuffer(i).asInstanceOf[ArrayBuffer[Double]].toArray))
         case "FLOAT" =>

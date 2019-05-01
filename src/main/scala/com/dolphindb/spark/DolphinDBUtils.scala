@@ -19,6 +19,16 @@ object DolphinDBUtils extends Logging{
   val DolphinDB_PER_NUM = 30000
 
   /**
+    * DolphinDB Table partition Type num
+    */
+  val DolphinDB_Partition_SEQ = 0
+  val DolphinDB_Partition_VALUE = 1
+  val DolphinDB_Partition_RANGE = 2
+  val DolphinDB_Partition_LIST = 3
+  val DolphinDB_Partition_COMPO = 4
+  val DolphinDB_Partition_HASH = 5
+
+  /**
     * Parses the user specified customSchema option value to DataFrame schema, and
     * returns a schema that is replaced by the custom schema's dataType if column name is matched.
     */
@@ -90,7 +100,6 @@ object DolphinDBUtils extends Logging{
   def getDolphinDBSchema(conn: DBConnection, dBOptions: DolphinDBOptions) : Array[(String, String)] = {
     val table = dBOptions.table
     val schemaTB = conn.run(s"schema(${table}).colDefs").asInstanceOf[BasicTable]
-//    val dolphinDBName2Type = new mutable.HashMap[String, String]()
     val dolphinDBName2Type = new ArrayBuffer[(String, String)]()
     for (i <- 0 until(schemaTB.rows())) {
       dolphinDBName2Type += (schemaTB.getColumn(0).get(i).toString ->
@@ -98,11 +107,5 @@ object DolphinDBUtils extends Logging{
     }
     dolphinDBName2Type.toArray
   }
-
-
-
-
-
-
 
 }
