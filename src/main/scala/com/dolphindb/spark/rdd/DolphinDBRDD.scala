@@ -285,61 +285,70 @@ private[spark] class DolphinDBRDD(
 
   /**
     * Get query conditions for DolphinDB
-    * @param part  DolphinDbPartition
+    * @param part  DolphinDBPartition
     * @return
     */
   private def getWhereClause(part : DolphinDBPartition) :String = {
-    if (part.partiCols != null && filterWhereClause.length > 0) {
-      val partCondition = new mutable.StringBuilder()
+    val partCondition = new mutable.StringBuilder("")
+    /**  Add partition condition    */
+    if (part.partiCols != null) {
       for (i <- 0 until(part.partiCols.length)) {
-        val partiType = DolphinDBRDD.originNameToType.get(part.partiCols(i)).get.toUpperCase()
+        val colType = DolphinDBRDD.originNameToType.get(part.partiCols(i)).get.toUpperCase()
         partCondition.append(part.partiCols(i))
 
         if (part.partiVals(i).length > 1) {
-          partCondition.append(" in ")
-          val partCIB = new mutable.StringBuilder("( ")
-          for (partCI <- part.partiVals(i)){
-            if (partiType.equals("STRING") || partiType.equals("SYMBOL")) partCIB.append( "\""+ partCI + "\"")
-            else partCIB.append(partCI)
+          if (part.partiTypes(i) == 2) {    /**  DolphinDB partititon type is range  */
+            if (colType.equals("STRING") || colType.equals("SYMBOL")) {
+              if (part.partiVals(i)(0).equals(part.partiVals(i)(1))) partCondition.append(" = \"" + part.partiVals(i)(0) + "\"")
+              else {
+                /** If reverse range partitioning is used here ,
+                  * The data type must be determined
+                  * There is no determination of the data type  */
+                if (part.partiVals(i)(0) < part.partiVals(i)(1)){
+                  partCondition.append(" >= \"" + part.partiVals(i)(0) + "\"")
+                  partCondition.append(" and "+ part.partiCols(i) +" < \"" + part.partiVals(i)(1) + "\"")
+                } else {
+                  partCondition.append(" >= \"" + part.partiVals(i)(1) + "\"")
+                  partCondition.append(" and "+ part.partiCols(i) +"< \"" + part.partiVals(i)(0) + "\"")
+                }
+              }
+            } else {
+              if (part.partiVals(i)(0) == part.partiVals(i)(1)) partCondition.append(" = " + part.partiVals(i)(0))
+              else {
+                if (part.partiVals(i)(0) < part.partiVals(i)(1)){
+                  partCondition.append(" >= " + part.partiVals(i)(0))
+                  partCondition.append(" and "+ part.partiCols(i) +"< " + part.partiVals(i)(1))
+                } else {
+                  partCondition.append(" >= " + part.partiVals(i)(1))
+                  partCondition.append(" and "+ part.partiCols(i) +"< " + part.partiVals(i)(0))
+                }
+              }
+            }
+          } else if (part.partiTypes(i) == 3) {   /**  DolphinDB partititon type is List    */
+            partCondition.append(" in ")
+            val partCIB = new mutable.StringBuilder("( ")
+            for (partCI <- part.partiVals(i)){
+              if (colType.equals("STRING") || colType.equals("SYMBOL")) partCIB.append( "\""+ partCI + "\"" + ",")
+              else partCIB.append(partCI + ",")
+            }
+            partCondition.append(partCIB.substring(0, partCIB.length - 1) + ")")
           }
-          partCIB.append(")")
-          partCondition.append(partCIB.toString())
         } else {
           partCondition.append(" = ")
-          if (partiType.equals("STRING") || partiType.equals("SYMBOL")) partCondition.append( "\""+ part.partiVals(i)(0) + "\"")
+          if (colType.equals("STRING") || colType.equals("SYMBOL")) partCondition.append( "\""+ part.partiVals(i)(0) + "\"")
           else partCondition.append(part.partiVals(i)(0))
         }
         partCondition.append(" and ")
       }
-      " where " + partCondition.toString + s"($filterWhereClause)"
-    } else if (part.partiCols != null) {
-      val partCondition = new mutable.StringBuilder()
-      for (i <- 0 until(part.partiCols.length)) {
-        val partiType = DolphinDBRDD.originNameToType.get(part.partiCols(i)).get.toUpperCase()
-        partCondition.append(part.partiCols(i))
-
-        if (part.partiVals(i).length > 1) {
-          partCondition.append(" in ")
-          val partCIB = new mutable.StringBuilder("( ")
-          for (partCI <- part.partiVals(i)){
-            if (partiType.equals("STRING") || partiType.equals("SYMBOL")) partCIB.append( "\""+ partCI + "\"")
-            else partCIB.append(partCI)
-          }
-          partCIB.append(")")
-          partCondition.append(partCIB.toString())
-        } else {
-          partCondition.append(" = ")
-          if (partiType.equals("STRING") || partiType.equals("SYMBOL")) partCondition.append( "\""+ part.partiVals(i)(0) + "\"")
-          else partCondition.append(part.partiVals(i)(0))
-        }
-        partCondition.append(" and ")
-      }
-      "where " + partCondition.substring(0, partCondition.lastIndexOf("and"))
-    } else if (filterWhereClause.length > 0) {
-      "where " + filterWhereClause
-    } else {
-      ""
     }
+    if (partCondition.length > 0) {
+      partCondition.append(" and ")
+      partCondition.append(s" $filterWhereClause ")
+    } else {
+      partCondition.append(s" $filterWhereClause ")
+    }
+    if (partCondition.length > 0) " where " + partCondition.toString()
+    else ""
   }
 
   /**
