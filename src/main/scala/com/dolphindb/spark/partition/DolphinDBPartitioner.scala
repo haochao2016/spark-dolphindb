@@ -51,10 +51,10 @@ case class DolphinDBPartitioner(option: DolphinDBOptions) extends Serializable {
       *  if partiFilters.length==0 ,need add all DolphinDB partition into spark partition.
       *  if not , need select the appropriate partitions.
       **/
-    var partiValArr = new ArrayBuffer[ArrayBuffer[Array[String]]]()  // Contains all partition value in Spark
+    val partiValArr = new ArrayBuffer[ArrayBuffer[Array[String]]]()  // Contains all partition value in Spark
 //    var partiValArr = new ArrayBuffer[ArrayBuffer[String]]()  // Contains all partition value in Spark
       /** There are multiple partitions in DolphinDB table */
-    if (/*partiVals.isInstanceOf[BasicAnyVector] &&*/ partiCols.length > 1) {
+    if (partiCols.length > 1) {
       val partiVector = partiVals.asInstanceOf[BasicAnyVector]
 
       for (i <- 0 until(partiVector.rows())) {
@@ -93,17 +93,17 @@ case class DolphinDBPartitioner(option: DolphinDBOptions) extends Serializable {
             /** There are partition filter in User-defined SQL   */
             if (partiFilters.length != 0 && getDolphinDBPartitionBySingleFilter(partiCols(i),
               vecBuf.toArray, partiType(i),partiFilters.toArray)) {
-              partiValArr += ArrayBuffer[Array[String]](vecBuf.toArray)
-            } else {
+              tmpPartiVal += ArrayBuffer[Array[String]](vecBuf.toArray)
+            } else if (partiFilters.length == 0){
             /**  There are not partition filter in User-defined SQL */
-              partiValArr += ArrayBuffer[Array[String]](vecBuf.toArray)
+              tmpPartiVal += ArrayBuffer[Array[String]](vecBuf.toArray)
             }
           } else {
 
             /**  means not the first level partition in DolphinDB */
             var addPartFlag = true
             /** There are partition filter in User-defined SQL   */
-            if (!(partiFilters.length != 0 && getDolphinDBPartitionBySingleFilter(partiCols(i),
+            if (partiFilters.length != 0 && (!getDolphinDBPartitionBySingleFilter(partiCols(i),
               vecBuf.toArray, partiType(i), partiFilters.toArray))){
               addPartFlag = false
             }
@@ -118,8 +118,12 @@ case class DolphinDBPartitioner(option: DolphinDBOptions) extends Serializable {
           }
 
         }
-        partiValArr = tmpPartiVal
-        tmpPartiVal.clear()
+        if (tmpPartiVal.length != 0) {
+//          partiValArr = tmpPartiVal
+          partiValArr.clear()
+          tmpPartiVal.copyToBuffer(partiValArr)
+          tmpPartiVal.clear()
+        }
       }
     } else {
       /** There is only one partition in DolphinDB table. */
@@ -156,7 +160,7 @@ case class DolphinDBPartitioner(option: DolphinDBOptions) extends Serializable {
             partiBuf += partiVals.get(pi).toString
           }
           /** There are partition filter in User-defined SQL, So filter partition  */
-          if (!(partiFilters.length != 0 && getDolphinDBPartitionBySingleFilter(partiCols(0),
+          if (partiFilters.length != 0 && (!getDolphinDBPartitionBySingleFilter(partiCols(0),
             partiBuf.toArray, partiType(0), partiFilters.toArray))) {
             addPartFlag = false
           }
@@ -187,183 +191,200 @@ case class DolphinDBPartitioner(option: DolphinDBOptions) extends Serializable {
           partFilter: Array[Filter]) : Boolean = {
 
     /**   Get the partiton column type in dolphindb  */
-    val partType = DolphinDBRDD.originNameToType.get(partCol).get.toUpperCase
+    val colType = DolphinDBRDD.originNameToType.get(partCol).get.toUpperCase
 
     var flagPart = false
 //     for (partiVal <- partiVals) {
-       if(partType.equals("STRING") || partType.equals("SYMBOL")) {
+       if(colType.equals("STRING") || colType.equals("SYMBOL")) {
          partFilter.foreach(f => f match {
              case EqualTo(attr, value) => {
-               var typeFlag = false
-               if (partType == 3) {
-                partiVals.foreach(pv => if (pv.equals(value.toString)) {
-                  typeFlag = true
-                })
-               } else if (partType == 2) {
-                 if (partiVals(0).equals(partiVals(1)) && partiVals(0).equals(value.toString)){
-                    typeFlag = true
-                 } else if((partiVals(0) <= value.toString && value.toString < partiVals(1)) ||
-                   (partiVals(1) <= value.toString && value.toString < partiVals(0))){
-                   typeFlag = true
-                 }
-               } else {
-                if (partiVals(0).equals(value.toString)) typeFlag = true
-               }
-               if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
-                 flagPart = true
-               }
-             }
-             case LessThan(attr, value) => {
-               var typeFlag = false
-               if (partType == 3) {
-                 partiVals.foreach(pv => if (pv < value.toString) {
-                   typeFlag = true
-                 })
-                } else if (partType == 2) {
-                   if((partiVals(0) < value.toString || partiVals(1) < value.toString) ){
-                   typeFlag = true
-                 }
-               } else {
-                 if (partiVals(0) < (value.toString)) typeFlag = true
-               }
-               if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
-                 flagPart = true
-               }
-             }
-             case GreaterThan(attr, value) => {
-               var typeFlag = false
-               if (partType == 3) {
-                 partiVals.foreach(pv => if (pv > value.toString) {
-                   typeFlag = true
-                 })
-               } else if (partType == 2) {
-                 if((partiVals(0) > value.toString || partiVals(1) > value.toString) ){
-                   typeFlag = true
-                 }
-               } else {
-                 if (partiVals(0) > (value.toString)) typeFlag = true
-               }
-               if ((attr.equalsIgnoreCase(partCol) &&typeFlag)) {
-                 flagPart = true
-               }
-             }
-             case LessThanOrEqual(attr, value) => {
-               var typeFlag = false
-               if (partType == 3) {
-                 partiVals.foreach(pv => if (pv <= value.toString) {
-                   typeFlag = true
-                 })
-               } else if (partType == 2) {
-                 if((partiVals(0) <= value.toString || partiVals(1) <= value.toString) ){
-                   typeFlag = true
-                 }
-               } else {
-                 if (partiVals(0) <= (value.toString)) typeFlag = true
-               }
-               if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
-                 flagPart = true
-               }
-             }
-             case GreaterThanOrEqual(attr, value) => {
-               var typeFlag = false
-               if (partType == 3) {
-                 partiVals.foreach(pv => if (pv >= value.toString) {
-                   typeFlag = true
-                 })
-               } else if (partType == 2) {
-                 if (partiVals(0).equals(partiVals(1)) && partiVals(0).equals(value.toString)){
-                   typeFlag = true
-                 }
-                 if((partiVals(0) >= value.toString || partiVals(1) >= value.toString) ){
-                   typeFlag = true
-                 }
-               } else {
-                 if (partiVals(0) <= (value.toString)) typeFlag = true
-               }
-               if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
-                 flagPart = true
-               }
-             }
-             case StringStartsWith(attr, value) => {
-               var typeFlag = false
-               val userStr = value.replace("%", "").replace("*", "")
-               if (partType == 3) {
-                 partiVals.foreach(pv => if (pv.toString.startsWith(userStr)) {
-                   typeFlag = true
-                 })
-               } else if (partType == 2) {
-                 if((partiVals(0) >= userStr.toString || partiVals(1) <= userStr.toString) ||
-                   (partiVals(1) >= userStr.toString || partiVals(0) <= userStr.toString)){
-                   typeFlag = true
-                 }
-               } else {
-                 if (partiVals(0).toString.startsWith(userStr)) typeFlag = true
-               }
-
-               if (attr.equalsIgnoreCase(partCol) && typeFlag) {
-                 flagPart = true
-               }
-             }
-             case StringEndsWith(attr, value) => {
-               var typeFlag = false
-               val userStr = value.replace("%", "").replace("*", "")
-               if (partType == 3) {
-                 partiVals.foreach(pv => if (pv.toString.endsWith(userStr)) {
-                   typeFlag = true
-                 })
-               } else if (partType == 2) {
-//                 if((partiVals(0) >= userStr.toString || partiVals(1) <= userStr.toString) ||
-//                   (partiVals(1) >= userStr.toString || partiVals(0) <= userStr.toString)){
-                   typeFlag = true
-//                 }
-               } else {
-                 if (partiVals(0).toString.endsWith(userStr)) typeFlag = true
-               }
-
-               if (attr.equalsIgnoreCase(partCol) && typeFlag ) {
-                 flagPart = true
-               }
-             }
-             case StringContains(attr, value) => {
-               var typeFlag = false
-               val userStr = value.replace("%", "").replace("*", "")
-               if (partType == 3) {
-                 partiVals.foreach(pv => if (pv.toString.contains(userStr)) {
-                   typeFlag = true
-                 })
-               } else if (partType == 2) {
-//                 if((partiVals(0) >= userStr.toString || partiVals(1) <= userStr.toString) ||
-//                      (partiVals(1) >= userStr.toString || partiVals(0) <= userStr.toString)){
-                   typeFlag = true
-//                 }
-               } else {
-                 if (partiVals(0).toString.endsWith(userStr)) typeFlag = true
-               }
-
-               if (attr.equalsIgnoreCase(partCol) && typeFlag) {
-                 flagPart = true
-               }
-             }
-             case In(attr, value) => {
-               var typeFlag = false
-
-               value.foreach(v => {
-//                 if (v.toString.equals(partiVals)) typeFlag = true
-                 if (partType == 3) {
-                   partiVals.foreach(pv => if (pv.toString.equals(v.toString)) {
+               if (attr.equalsIgnoreCase(partCol)) {
+                 var typeFlag = false
+                 if (partiType == 3) {
+                   partiVals.foreach(pv => if (pv.equals(value.toString)) {
                      typeFlag = true
                    })
-                 } else if (partType == 2) {
-                   if ((partiVals(0) <= v.toString && v.toString <= partiVals(1)) ||
-                     (partiVals(1) <= v.toString && v.toString <= partiVals(0))) {
+                 } else if (partiType == 2) {
+                   if (partiVals(0).equals(partiVals(1)) && partiVals(0).equals(value.toString)) {
+                     typeFlag = true
+                   } else if ((partiVals(0) <= value.toString && value.toString < partiVals(1)) ||
+                     (partiVals(1) <= value.toString && value.toString < partiVals(0))) {
                      typeFlag = true
                    }
                  } else {
-                   if (v.toString.equals(partiVals(0))) typeFlag = true
+                   if (partiVals(0).equals(value.toString)) typeFlag = true
                  }
-               })
-               if (attr.equalsIgnoreCase(partCol) && typeFlag) {
-                 flagPart = true
+                 if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
+                   flagPart = true
+                 }
+               }
+             }
+             case LessThan(attr, value) => {
+               if (attr.equalsIgnoreCase(partCol)) {
+                 var typeFlag = false
+                 if (partiType == 3) {
+                   partiVals.foreach(pv => if (pv < value.toString) {
+                     typeFlag = true
+                   })
+                 } else if (partiType == 2) {
+                   if ((partiVals(0) < value.toString || partiVals(1) < value.toString)) {
+                     typeFlag = true
+                   }
+                 } else {
+                   if (partiVals(0) < (value.toString)) typeFlag = true
+                 }
+                 if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
+                   flagPart = true
+                 }
+               }
+             }
+             case GreaterThan(attr, value) => {
+               if (attr.equalsIgnoreCase(partCol)) {
+                 var typeFlag = false
+                 if (partiType == 3) {
+                   partiVals.foreach(pv => if (pv > value.toString) {
+                     typeFlag = true
+                   })
+                 } else if (partiType == 2) {
+                   if ((partiVals(0) > value.toString || partiVals(1) > value.toString)) {
+                     typeFlag = true
+                   }
+                 } else {
+                   if (partiVals(0) > (value.toString)) typeFlag = true
+                 }
+                 if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
+                   flagPart = true
+                 }
+               }
+             }
+             case LessThanOrEqual(attr, value) => {
+               if (attr.equalsIgnoreCase(partCol)) {
+                 var typeFlag = false
+                 if (partiType == 3) {
+                   partiVals.foreach(pv => if (pv <= value.toString) {
+                     typeFlag = true
+                   })
+                 } else if (partiType == 2) {
+                   if ((partiVals(0) <= value.toString || partiVals(1) <= value.toString)) {
+                     typeFlag = true
+                   }
+                 } else {
+                   if (partiVals(0) <= (value.toString)) typeFlag = true
+                 }
+                 if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
+                   flagPart = true
+                 }
+               }
+             }
+             case GreaterThanOrEqual(attr, value) => {
+               if (attr.equalsIgnoreCase(partCol)) {
+                 var typeFlag = false
+                 if (partiType == 3) {
+                   partiVals.foreach(pv => if (pv >= value.toString) {
+                     typeFlag = true
+                   })
+                 } else if (partiType == 2) {
+                   if (partiVals(0).equals(partiVals(1)) && partiVals(0).equals(value.toString)) {
+                     typeFlag = true
+                   }
+                   if ((partiVals(0) >= value.toString || partiVals(1) >= value.toString)) {
+                     typeFlag = true
+                   }
+                 } else {
+                   if (partiVals(0) <= (value.toString)) typeFlag = true
+                 }
+                 if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
+                   flagPart = true
+                 }
+               }
+             }
+             case StringStartsWith(attr, value) => {
+               if (attr.equalsIgnoreCase(partCol)) {
+                 var typeFlag = false
+                 val userStr = value.replace("%", "").replace("*", "")
+                 if (partiType == 3) {
+                   partiVals.foreach(pv => if (pv.toString.startsWith(userStr)) {
+                     typeFlag = true
+                   })
+                 } else if (partiType == 2) {
+                   if ((partiVals(0) >= userStr.toString || partiVals(1) <= userStr.toString) ||
+                     (partiVals(1) >= userStr.toString || partiVals(0) <= userStr.toString)) {
+                     typeFlag = true
+                   }
+                 } else {
+                   if (partiVals(0).toString.startsWith(userStr)) typeFlag = true
+                 }
+
+                 if (attr.equalsIgnoreCase(partCol) && typeFlag) {
+                   flagPart = true
+                 }
+               }
+             }
+             case StringEndsWith(attr, value) => {
+               if (attr.equalsIgnoreCase(partCol)) {
+                 var typeFlag = false
+                 val userStr = value.replace("%", "").replace("*", "")
+                 if (partiType == 3) {
+                   partiVals.foreach(pv => if (pv.toString.endsWith(userStr)) {
+                     typeFlag = true
+                   })
+                 } else if (partiType == 2) {
+                   //                 if((partiVals(0) >= userStr.toString || partiVals(1) <= userStr.toString) ||
+                   //                   (partiVals(1) >= userStr.toString || partiVals(0) <= userStr.toString)){
+                   typeFlag = true
+                   //                 }
+                 } else {
+                   if (partiVals(0).toString.endsWith(userStr)) typeFlag = true
+                 }
+
+                 if (attr.equalsIgnoreCase(partCol) && typeFlag) {
+                   flagPart = true
+                 }
+               }
+             }
+             case StringContains(attr, value) => {
+               if (attr.equalsIgnoreCase(partCol)) {
+                 var typeFlag = false
+                 val userStr = value.replace("%", "").replace("*", "")
+                 if (partiType == 3) {
+                   partiVals.foreach(pv => if (pv.toString.contains(userStr)) {
+                     typeFlag = true
+                   })
+                 } else if (partiType == 2) {
+                   //                 if((partiVals(0) >= userStr.toString || partiVals(1) <= userStr.toString) ||
+                   //                      (partiVals(1) >= userStr.toString || partiVals(0) <= userStr.toString)){
+                   typeFlag = true
+                   //                 }
+                 } else {
+                   if (partiVals(0).toString.endsWith(userStr)) typeFlag = true
+                 }
+
+                 if (attr.equalsIgnoreCase(partCol) && typeFlag) {
+                   flagPart = true
+                 }
+               }
+             }
+             case In(attr, value) => {
+               if (attr.equalsIgnoreCase(partCol)) {
+                 var typeFlag = false
+                 value.foreach(v => {
+                   //                 if (v.toString.equals(partiVals)) typeFlag = true
+                   if (partiType == 3) {
+                     partiVals.foreach(pv => if (pv.toString.equals(v.toString)) {
+                       typeFlag = true
+                     })
+                   } else if (partiType == 2) {
+                     if ((partiVals(0) <= v.toString && v.toString <= partiVals(1)) ||
+                       (partiVals(1) <= v.toString && v.toString <= partiVals(0))) {
+                       typeFlag = true
+                     }
+                   } else {
+                     if (v.toString.equals(partiVals(0))) typeFlag = true
+                   }
+                 })
+                 if (attr.equalsIgnoreCase(partCol) && typeFlag) {
+                   flagPart = true
+                 }
                }
              }
              case Not(f) => {
@@ -385,115 +406,127 @@ case class DolphinDBPartitioner(option: DolphinDBOptions) extends Serializable {
              }
              case _ =>
          })
-       } else if (partType.equals("INT") || partType.equals("LONG")
-            || partType.equals("SHORT")){
+       } else if (colType.equals("INT") || colType.equals("LONG")
+            || colType.equals("SHORT")){
          partFilter.foreach(f => f match {
            case EqualTo(attr, value) => {
-             var typeFlag = false
-             if (partType == 3) {
-               partiVals.foreach(pv => if (pv.toLong == value.toString.toLong) {
-                 typeFlag = true
-               })
-             } else if (partType == 2) {
-               if (partiVals(0).toLong == partiVals(1).toLong && partiVals(0).toLong == value.toString.toLong){
-                 typeFlag = true
-               } else if((partiVals(0).toLong <= value.toString.toLong && value.toString.toLong < partiVals(1).toLong) ||
-                 (partiVals(1).toLong <= value.toString.toLong && value.toString.toLong < partiVals(0).toLong)){
-                 typeFlag = true
-               }
-             } else {
-               if (partiVals(0).toLong == value.toString.toLong) typeFlag = true
-             }
-             if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
-               flagPart = true
-             }
-           }
-           case LessThan(attr, value) => {
-             var typeFlag = false
-             if (partType == 3) {
-               partiVals.foreach(pv => if (pv.toLong < value.toString.toLong) {
-                 typeFlag = true
-               })
-             } else if (partType == 2) {
-               if((partiVals(0).toLong < value.toString.toLong || partiVals(1).toLong < value.toString.toLong)){
-                 typeFlag = true
-               }
-             } else {
-               if (partiVals(0).toLong < value.toString.toLong) typeFlag = true
-             }
-             if (attr.equalsIgnoreCase(partCol) && typeFlag) {
-               flagPart = true
-             }
-           }
-           case GreaterThan(attr, value) => {
-             var typeFlag = false
-             if (partType == 3) {
-               partiVals.foreach(pv => if (pv.toLong > value.toString.toLong) {
-                 typeFlag = true
-               })
-             } else if (partType == 2) {
-               if((partiVals(0).toLong > value.toString.toLong || value.toString.toLong < partiVals(1).toLong)){
-                 typeFlag = true
-               }
-             } else {
-               if (partiVals(0).toLong > value.toString.toLong) typeFlag = true
-             }
-             if (attr.equalsIgnoreCase(partCol) && typeFlag) {
-               flagPart = true
-             }
-           }
-           case LessThanOrEqual(attr, value) => {
-             var typeFlag = false
-             if (partType == 3) {
-               partiVals.foreach(pv => if (pv.toLong <= value.toString.toLong) {
-                 typeFlag = true
-               })
-             } else if (partType == 2) {
-               if((partiVals(0).toLong <= value.toString.toLong || partiVals(1).toLong  <=  value.toString.toLong)){
-                 typeFlag = true
-               }
-             } else {
-               if (partiVals(0).toLong <= value.toString.toLong) typeFlag = true
-             }
-             if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
-               flagPart = true
-             }
-           }
-           case GreaterThanOrEqual(attr, value) => {
-             var typeFlag = false
-             if (partType == 3) {
-               partiVals.foreach(pv => if (pv.toLong >= value.toString.toLong) {
-                 typeFlag = true
-               })
-             } else if (partType == 2) {
-               if((partiVals(0).toLong >= value.toString.toLong || value.toString.toLong <= partiVals(1).toLong)){
-                 typeFlag = true
-               }
-             } else {
-               if (partiVals(0).toLong >= value.toString.toLong) typeFlag = true
-             }
-             if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
-               flagPart = true
-             }
-           }
-           case In(attr, value) => {
-             var typeFlag = false
-             value.foreach(v => {
-               if (partType == 3) {
-                 partiVals.foreach(pv => if (pv.toLong == v.toString.toLong) {
+             if (attr.equalsIgnoreCase(partCol)) {
+               var typeFlag = false
+               if (partiType == 3) {
+                 partiVals.foreach(pv => if (pv.toLong == value.toString.toLong) {
                    typeFlag = true
                  })
-               } else if (partType == 2) {
-                 if((partiVals(0).toLong <= value.toString.toLong && value.toString.toLong <= partiVals(1).toLong) ||
-                    (partiVals(1).toLong <= value.toString.toLong && value.toString.toLong <= partiVals(0).toLong)){
+               } else if (partiType == 2) {
+                 if (partiVals(0).toLong == partiVals(1).toLong && partiVals(0).toLong == value.toString.toLong) {
+                   typeFlag = true
+                 } else if ((partiVals(0).toLong <= value.toString.toLong && value.toString.toLong < partiVals(1).toLong) ||
+                   (partiVals(1).toLong <= value.toString.toLong && value.toString.toLong < partiVals(0).toLong)) {
                    typeFlag = true
                  }
                } else {
                  if (partiVals(0).toLong == value.toString.toLong) typeFlag = true
                }
-             })
-             if (attr.equalsIgnoreCase(partCol) && typeFlag) {
-               flagPart = true
+               if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
+                 flagPart = true
+               }
+             }
+           }
+           case LessThan(attr, value) => {
+             if (attr.equalsIgnoreCase(partCol)) {
+               var typeFlag = false
+               if (partiType == 3) {
+                 partiVals.foreach(pv => if (pv.toLong < value.toString.toLong) {
+                   typeFlag = true
+                 })
+               } else if (partiType == 2) {
+                 if ((partiVals(0).toLong < value.toString.toLong || partiVals(1).toLong < value.toString.toLong)) {
+                   typeFlag = true
+                 }
+               } else {
+                 if (partiVals(0).toLong < value.toString.toLong) typeFlag = true
+               }
+               if (attr.equalsIgnoreCase(partCol) && typeFlag) {
+                 flagPart = true
+               }
+             }
+           }
+           case GreaterThan(attr, value) => {
+             if (attr.equalsIgnoreCase(partCol)) {
+               var typeFlag = false
+               if (partiType == 3) {
+                 partiVals.foreach(pv => if (pv.toLong > value.toString.toLong) {
+                   typeFlag = true
+                 })
+               } else if (partiType == 2) {
+                 if ((partiVals(0).toLong > value.toString.toLong || value.toString.toLong < partiVals(1).toLong)) {
+                   typeFlag = true
+                 }
+               } else {
+                 if (partiVals(0).toLong > value.toString.toLong) typeFlag = true
+               }
+               if (attr.equalsIgnoreCase(partCol) && typeFlag) {
+                 flagPart = true
+               }
+             }
+           }
+           case LessThanOrEqual(attr, value) => {
+             if (attr.equalsIgnoreCase(partCol)) {
+               var typeFlag = false
+               if (partiType == 3) {
+                 partiVals.foreach(pv => if (pv.toLong <= value.toString.toLong) {
+                   typeFlag = true
+                 })
+               } else if (partiType == 2) {
+                 if ((partiVals(0).toLong <= value.toString.toLong || partiVals(1).toLong <= value.toString.toLong)) {
+                   typeFlag = true
+                 }
+               } else {
+                 if (partiVals(0).toLong <= value.toString.toLong) typeFlag = true
+               }
+               if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
+                 flagPart = true
+               }
+             }
+           }
+           case GreaterThanOrEqual(attr, value) => {
+             if (attr.equalsIgnoreCase(partCol)) {
+               var typeFlag = false
+               if (partiType == 3) {
+                 partiVals.foreach(pv => if (pv.toLong >= value.toString.toLong) {
+                   typeFlag = true
+                 })
+               } else if (partiType == 2) {
+                 if ((partiVals(0).toLong >= value.toString.toLong || value.toString.toLong <= partiVals(1).toLong)) {
+                   typeFlag = true
+                 }
+               } else {
+                 if (partiVals(0).toLong >= value.toString.toLong) typeFlag = true
+               }
+               if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
+                 flagPart = true
+               }
+             }
+           }
+           case In(attr, value) => {
+             if (attr.equalsIgnoreCase(partCol)) {
+               var typeFlag = false
+               value.foreach(v => {
+                 if (partiType == 3) {
+                   partiVals.foreach(pv => if (pv.toLong == v.toString.toLong) {
+                     typeFlag = true
+                   })
+                 } else if (partiType == 2) {
+                   if ((partiVals(0).toLong <= value.toString.toLong && value.toString.toLong <= partiVals(1).toLong) ||
+                     (partiVals(1).toLong <= value.toString.toLong && value.toString.toLong <= partiVals(0).toLong)) {
+                     typeFlag = true
+                   }
+                 } else {
+                   if (partiVals(0).toLong == value.toString.toLong) typeFlag = true
+                 }
+               })
+               if (attr.equalsIgnoreCase(partCol) && typeFlag) {
+                 flagPart = true
+               }
              }
            }
            case Not(f) => {
@@ -515,115 +548,127 @@ case class DolphinDBPartitioner(option: DolphinDBOptions) extends Serializable {
            }
            case _ =>
          })
-       } else if (partType.equals("CHAR")) {
+       } else if (colType.equals("CHAR")) {
          partFilter.foreach(f => f match {
            case EqualTo(attr, value) => {
-             var typeFlag = false
-             if (partType == 3) {
-               partiVals.foreach(pv => if (pv.charAt(0).toByte == value.toString.charAt(0).toByte) {
-                 typeFlag = true
-               })
-             } else if (partType == 2) {
-               if (partiVals(0).charAt(0).toByte == partiVals(1).charAt(0).toByte &&
-                  partiVals(0).charAt(0).toByte == value.toString.charAt(0).toByte){
-                 typeFlag = true
-               } else if((partiVals(0).charAt(0).toByte <= value.toString.charAt(0).toByte && value.toString.charAt(0).toByte < partiVals(1).charAt(0).toByte) ||
-                 (partiVals(1).charAt(0).toByte <= value.toString.charAt(0).toByte && value.toString.charAt(0).toByte < partiVals(0).charAt(0).toByte)){
-                 typeFlag = true
-               }
-             } else {
-               if (partiVals(0).charAt(0).toByte == value.toString.charAt(0).toByte) typeFlag = true
-             }
-             if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
-               flagPart = true
-             }
-           }
-           case LessThan(attr, value) => {
-             var typeFlag = false
-             if (partType == 3) {
-               partiVals.foreach(pv => if (pv.charAt(0).toByte < value.toString.charAt(0).toByte) {
-                 typeFlag = true
-               })
-             } else if (partType == 2) {
-               if((partiVals(0).charAt(0).toByte < value.toString.charAt(0).toByte || partiVals(1).charAt(0).toByte < value.toString.charAt(0).toByte)){
-                 typeFlag = true
-               }
-             } else {
-               if (partiVals(0).charAt(0).toByte < value.toString.charAt(0).toByte) typeFlag = true
-             }
-             if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
-               flagPart = true
-             }
-           }
-           case GreaterThan(attr, value) => {
-             var typeFlag = false
-             if (partType == 3) {
-               partiVals.foreach(pv => if (pv.charAt(0).toByte > value.toString.charAt(0).toByte) {
-                 typeFlag = true
-               })
-             } else if (partType == 2) {
-               if((partiVals(0).charAt(0).toByte > value.toString.charAt(0).toByte || partiVals(1).charAt(0).toByte > value.toString.charAt(0).toByte)){
-                 typeFlag = true
-               }
-             } else {
-               if (partiVals(0).charAt(0).toByte > value.toString.charAt(0).toByte) typeFlag = true
-             }
-             if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
-               flagPart = true
-             }
-           }
-           case LessThanOrEqual(attr, value) => {
-             var typeFlag = false
-             if (partType == 3) {
-               partiVals.foreach(pv => if (pv.charAt(0).toByte <= value.toString.charAt(0).toByte) {
-                 typeFlag = true
-               })
-             } else if (partType == 2) {
-               if((partiVals(0).charAt(0).toByte <= value.toString.charAt(0).toByte || partiVals(1).charAt(0).toByte <= value.toString.charAt(0).toByte)){
-                 typeFlag = true
-               }
-             } else {
-               if (partiVals(0).charAt(0).toByte <= value.toString.charAt(0).toByte) typeFlag = true
-             }
-             if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
-               flagPart = true
-             }
-           }
-           case GreaterThanOrEqual(attr, value) => {
-             var typeFlag = false
-             if (partType == 3) {
-               partiVals.foreach(pv => if (pv.charAt(0).toByte >= value.toString.charAt(0).toByte) {
-                 typeFlag = true
-               })
-             } else if (partType == 2) {
-               if((partiVals(0).charAt(0).toByte >= value.toString.charAt(0).toByte || partiVals(1).charAt(0).toByte >= value.toString.charAt(0).toByte)){
-                 typeFlag = true
-               }
-             } else {
-               if (partiVals(0).charAt(0).toByte >= value.toString.charAt(0).toByte) typeFlag = true
-             }
-             if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
-               flagPart = true
-             }
-           }
-           case In(attr, value) => {
-             var typeFlag = false
-             value.foreach(v => {
-               if (partType == 3) {
-                 partiVals.foreach(pv => if (pv.charAt(0).toByte == v.toString.charAt(0).toByte) {
+             if (attr.equalsIgnoreCase(partCol)) {
+               var typeFlag = false
+               if (partiType == 3) {
+                 partiVals.foreach(pv => if (pv.charAt(0).toByte == value.toString.charAt(0).toByte) {
                    typeFlag = true
                  })
-               } else if (partType == 2) {
-                 if((partiVals(0).charAt(0).toByte <= v.toString.charAt(0).toByte || partiVals(1).charAt(0).toByte >= v.toString.charAt(0).toByte) ||
-                      (partiVals(0).charAt(0).toByte >= v.toString.charAt(0).toByte || partiVals(1).charAt(0).toByte <= v.toString.charAt(0).toByte)){
+               } else if (partiType == 2) {
+                 if (partiVals(0).charAt(0).toByte == partiVals(1).charAt(0).toByte &&
+                   partiVals(0).charAt(0).toByte == value.toString.charAt(0).toByte) {
+                   typeFlag = true
+                 } else if ((partiVals(0).charAt(0).toByte <= value.toString.charAt(0).toByte && value.toString.charAt(0).toByte < partiVals(1).charAt(0).toByte) ||
+                   (partiVals(1).charAt(0).toByte <= value.toString.charAt(0).toByte && value.toString.charAt(0).toByte < partiVals(0).charAt(0).toByte)) {
                    typeFlag = true
                  }
                } else {
-                 if (partiVals(0).charAt(0).toByte == v.toString.charAt(0).toByte) typeFlag = true
+                 if (partiVals(0).charAt(0).toByte == value.toString.charAt(0).toByte) typeFlag = true
                }
-             })
-             if (attr.equalsIgnoreCase(partCol) && typeFlag) {
-               flagPart = true
+               if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
+                 flagPart = true
+               }
+             }
+           }
+           case LessThan(attr, value) => {
+             if (attr.equalsIgnoreCase(partCol)) {
+               var typeFlag = false
+               if (partiType == 3) {
+                 partiVals.foreach(pv => if (pv.charAt(0).toByte < value.toString.charAt(0).toByte) {
+                   typeFlag = true
+                 })
+               } else if (partiType == 2) {
+                 if ((partiVals(0).charAt(0).toByte < value.toString.charAt(0).toByte || partiVals(1).charAt(0).toByte < value.toString.charAt(0).toByte)) {
+                   typeFlag = true
+                 }
+               } else {
+                 if (partiVals(0).charAt(0).toByte < value.toString.charAt(0).toByte) typeFlag = true
+               }
+               if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
+                 flagPart = true
+               }
+             }
+           }
+           case GreaterThan(attr, value) => {
+             if (attr.equalsIgnoreCase(partCol)) {
+               var typeFlag = false
+               if (partiType == 3) {
+                 partiVals.foreach(pv => if (pv.charAt(0).toByte > value.toString.charAt(0).toByte) {
+                   typeFlag = true
+                 })
+               } else if (partiType == 2) {
+                 if ((partiVals(0).charAt(0).toByte > value.toString.charAt(0).toByte || partiVals(1).charAt(0).toByte > value.toString.charAt(0).toByte)) {
+                   typeFlag = true
+                 }
+               } else {
+                 if (partiVals(0).charAt(0).toByte > value.toString.charAt(0).toByte) typeFlag = true
+               }
+               if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
+                 flagPart = true
+               }
+             }
+           }
+           case LessThanOrEqual(attr, value) => {
+             if (attr.equalsIgnoreCase(partCol)) {
+               var typeFlag = false
+               if (partiType == 3) {
+                 partiVals.foreach(pv => if (pv.charAt(0).toByte <= value.toString.charAt(0).toByte) {
+                   typeFlag = true
+                 })
+               } else if (partiType == 2) {
+                 if ((partiVals(0).charAt(0).toByte <= value.toString.charAt(0).toByte || partiVals(1).charAt(0).toByte <= value.toString.charAt(0).toByte)) {
+                   typeFlag = true
+                 }
+               } else {
+                 if (partiVals(0).charAt(0).toByte <= value.toString.charAt(0).toByte) typeFlag = true
+               }
+               if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
+                 flagPart = true
+               }
+             }
+           }
+           case GreaterThanOrEqual(attr, value) => {
+             if (attr.equalsIgnoreCase(partCol)) {
+               var typeFlag = false
+               if (partiType == 3) {
+                 partiVals.foreach(pv => if (pv.charAt(0).toByte >= value.toString.charAt(0).toByte) {
+                   typeFlag = true
+                 })
+               } else if (partiType == 2) {
+                 if ((partiVals(0).charAt(0).toByte >= value.toString.charAt(0).toByte || partiVals(1).charAt(0).toByte >= value.toString.charAt(0).toByte)) {
+                   typeFlag = true
+                 }
+               } else {
+                 if (partiVals(0).charAt(0).toByte >= value.toString.charAt(0).toByte) typeFlag = true
+               }
+               if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
+                 flagPart = true
+               }
+             }
+           }
+           case In(attr, value) => {
+             if (attr.equalsIgnoreCase(partCol)) {
+               var typeFlag = false
+               value.foreach(v => {
+                 if (partiType == 3) {
+                   partiVals.foreach(pv => if (pv.charAt(0).toByte == v.toString.charAt(0).toByte) {
+                     typeFlag = true
+                   })
+                 } else if (partiType == 2) {
+                   if ((partiVals(0).charAt(0).toByte <= v.toString.charAt(0).toByte || partiVals(1).charAt(0).toByte >= v.toString.charAt(0).toByte) ||
+                     (partiVals(0).charAt(0).toByte >= v.toString.charAt(0).toByte || partiVals(1).charAt(0).toByte <= v.toString.charAt(0).toByte)) {
+                     typeFlag = true
+                   }
+                 } else {
+                   if (partiVals(0).charAt(0).toByte == v.toString.charAt(0).toByte) typeFlag = true
+                 }
+               })
+               if (attr.equalsIgnoreCase(partCol) && typeFlag) {
+                 flagPart = true
+               }
              }
            }
            case Not(f) => {
@@ -645,114 +690,126 @@ case class DolphinDBPartitioner(option: DolphinDBOptions) extends Serializable {
            }
            case _ =>
          })
-       } else if (partType.equals("FLOAT") || partType.equals("DOUBLE")) {
+       } else if (colType.equals("FLOAT") || colType.equals("DOUBLE")) {
          partFilter.foreach(f => f match {
            case EqualTo(attr, value) => {
-             var typeFlag = false
-             if (partType == 3) {
-               partiVals.foreach(pv => if (pv.toDouble == value.toString.toDouble) {
-                 typeFlag = true
-               })
-             } else if (partType == 2) {
-               if (partiVals(0).toDouble == partiVals(1).toDouble && partiVals(0).toDouble == value.toString.toDouble){
-                 typeFlag = true
-               } else if((partiVals(0).toDouble <= value.toString.toDouble && value.toString.toDouble < partiVals(1).toDouble) ||
-                 (partiVals(1).toDouble <= value.toString.toDouble && value.toString.toDouble < partiVals(0).toDouble)){
-                 typeFlag = true
-               }
-             } else {
-               if (partiVals(0).toDouble == value.toString.toDouble) typeFlag = true
-             }
-             if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
-               flagPart = true
-             }
-           }
-           case LessThan(attr, value) => {
-             var typeFlag = false
-             if (partType == 3) {
-               partiVals.foreach(pv => if (pv.toDouble < value.toString.toDouble) {
-                 typeFlag = true
-               })
-             } else if (partType == 2) {
-               if((partiVals(0).toDouble < value.toString.toDouble || partiVals(1).toDouble < value.toString.toDouble)){
-                 typeFlag = true
-               }
-             } else {
-               if (partiVals(0).toDouble < value.toString.toDouble) typeFlag = true
-             }
-             if ((attr.equalsIgnoreCase(partCol) && typeFlag )) {
-               flagPart = true
-             }
-           }
-           case GreaterThan(attr, value) => {
-             var typeFlag = false
-             if (partType == 3) {
-               partiVals.foreach(pv => if (pv.toDouble > value.toString.toDouble) {
-                 typeFlag = true
-               })
-             } else if (partType == 2) {
-               if((partiVals(0).toDouble > value.toString.toDouble || partiVals(1).toDouble > value.toString.toDouble)){
-                 typeFlag = true
-               }
-             } else {
-               if (partiVals(0).toDouble > value.toString.toDouble) typeFlag = true
-             }
-             if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
-               flagPart = true
-             }
-           }
-           case LessThanOrEqual(attr, value) => {
-             var typeFlag = false
-             if (partType == 3) {
-               partiVals.foreach(pv => if (pv.toDouble <= value.toString.toDouble) {
-                 typeFlag = true
-               })
-             } else if (partType == 2) {
-               if((partiVals(0).toDouble <= value.toString.toDouble || partiVals(1).toDouble <= value.toString.toDouble)){
-                 typeFlag = true
-               }
-             } else {
-               if (partiVals(0).toDouble <= value.toString.toDouble) typeFlag = true
-             }
-             if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
-               flagPart = true
-             }
-           }
-           case GreaterThanOrEqual(attr, value) => {
-             var typeFlag = false
-             if (partType == 3) {
-               partiVals.foreach(pv => if (pv.toDouble >= value.toString.toDouble) {
-                 typeFlag = true
-               })
-             } else if (partType == 2) {
-               if((partiVals(0).toDouble >= value.toString.toDouble || partiVals(1).toDouble >= value.toString.toDouble)){
-                 typeFlag = true
-               }
-             } else {
-               if (partiVals(0).toDouble >= value.toString.toDouble) typeFlag = true
-             }
-             if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
-               flagPart = true
-             }
-           }
-           case In(attr, value) => {
-             var typeFlag = false
-             value.foreach(v => {
-               if (partType == 3) {
-                 partiVals.foreach(pv => if (pv.toDouble == v.toString.toDouble) {
+             if (attr.equalsIgnoreCase(partCol)) {
+               var typeFlag = false
+               if (partiType == 3) {
+                 partiVals.foreach(pv => if (pv.toDouble == value.toString.toDouble) {
                    typeFlag = true
                  })
-               } else if (partType == 2) {
-                 if((partiVals(0).toDouble <= value.toString.toDouble && value.toString.toDouble <= partiVals(1).toDouble) ||
-                   (partiVals(1).toDouble <= value.toString.toDouble && value.toString.toDouble <= partiVals(0).toDouble)){
+               } else if (partiType == 2) {
+                 if (partiVals(0).toDouble == partiVals(1).toDouble && partiVals(0).toDouble == value.toString.toDouble) {
+                   typeFlag = true
+                 } else if ((partiVals(0).toDouble <= value.toString.toDouble && value.toString.toDouble < partiVals(1).toDouble) ||
+                   (partiVals(1).toDouble <= value.toString.toDouble && value.toString.toDouble < partiVals(0).toDouble)) {
                    typeFlag = true
                  }
                } else {
                  if (partiVals(0).toDouble == value.toString.toDouble) typeFlag = true
                }
-             })
-             if (attr.equalsIgnoreCase(partCol) && typeFlag) {
-               flagPart = true
+               if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
+                 flagPart = true
+               }
+             }
+           }
+           case LessThan(attr, value) => {
+             if (attr.equalsIgnoreCase(partCol)) {
+               var typeFlag = false
+               if (partiType == 3) {
+                 partiVals.foreach(pv => if (pv.toDouble < value.toString.toDouble) {
+                   typeFlag = true
+                 })
+               } else if (partiType == 2) {
+                 if ((partiVals(0).toDouble < value.toString.toDouble || partiVals(1).toDouble < value.toString.toDouble)) {
+                   typeFlag = true
+                 }
+               } else {
+                 if (partiVals(0).toDouble < value.toString.toDouble) typeFlag = true
+               }
+               if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
+                 flagPart = true
+               }
+             }
+           }
+           case GreaterThan(attr, value) => {
+             if (attr.equalsIgnoreCase(partCol)) {
+               var typeFlag = false
+               if (partiType == 3) {
+                 partiVals.foreach(pv => if (pv.toDouble > value.toString.toDouble) {
+                   typeFlag = true
+                 })
+               } else if (partiType == 2) {
+                 if ((partiVals(0).toDouble > value.toString.toDouble || partiVals(1).toDouble > value.toString.toDouble)) {
+                   typeFlag = true
+                 }
+               } else {
+                 if (partiVals(0).toDouble > value.toString.toDouble) typeFlag = true
+               }
+               if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
+                 flagPart = true
+               }
+             }
+           }
+           case LessThanOrEqual(attr, value) => {
+             if (attr.equalsIgnoreCase(partCol)) {
+               var typeFlag = false
+               if (partiType == 3) {
+                 partiVals.foreach(pv => if (pv.toDouble <= value.toString.toDouble) {
+                   typeFlag = true
+                 })
+               } else if (partiType == 2) {
+                 if ((partiVals(0).toDouble <= value.toString.toDouble || partiVals(1).toDouble <= value.toString.toDouble)) {
+                   typeFlag = true
+                 }
+               } else {
+                 if (partiVals(0).toDouble <= value.toString.toDouble) typeFlag = true
+               }
+               if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
+                 flagPart = true
+               }
+             }
+           }
+           case GreaterThanOrEqual(attr, value) => {
+             if (attr.equalsIgnoreCase(partCol)) {
+               var typeFlag = false
+               if (partiType == 3) {
+                 partiVals.foreach(pv => if (pv.toDouble >= value.toString.toDouble) {
+                   typeFlag = true
+                 })
+               } else if (partiType == 2) {
+                 if ((partiVals(0).toDouble >= value.toString.toDouble || partiVals(1).toDouble >= value.toString.toDouble)) {
+                   typeFlag = true
+                 }
+               } else {
+                 if (partiVals(0).toDouble >= value.toString.toDouble) typeFlag = true
+               }
+               if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
+                 flagPart = true
+               }
+             }
+           }
+           case In(attr, value) => {
+             if (attr.equalsIgnoreCase(partCol)) {
+               var typeFlag = false
+               value.foreach(v => {
+                 if (partiType == 3) {
+                   partiVals.foreach(pv => if (pv.toDouble == v.toString.toDouble) {
+                     typeFlag = true
+                   })
+                 } else if (partiType == 2) {
+                   if ((partiVals(0).toDouble <= value.toString.toDouble && value.toString.toDouble <= partiVals(1).toDouble) ||
+                     (partiVals(1).toDouble <= value.toString.toDouble && value.toString.toDouble <= partiVals(0).toDouble)) {
+                     typeFlag = true
+                   }
+                 } else {
+                   if (partiVals(0).toDouble == value.toString.toDouble) typeFlag = true
+                 }
+               })
+               if (attr.equalsIgnoreCase(partCol) && typeFlag) {
+                 flagPart = true
+               }
              }
            }
            case Not(f) => {
@@ -774,202 +831,214 @@ case class DolphinDBPartitioner(option: DolphinDBOptions) extends Serializable {
            }
            case _ =>
          })
-       } else if (partType.equals("MONTH")) {
+       } else if (colType.equals("MONTH")) {
          partFilter.foreach(f => f match {
            case EqualTo(attr, value) => {
-             var typeFlag = false
-             var userMonstr :String = null
-             if (value.toString.contains("M"))  userMonstr = value.toString.replace("M", "")
-             else userMonstr = value.toString
-             val userMon = userMonstr.split("-")
+             if (attr.equalsIgnoreCase(partCol)) {
+               var typeFlag = false
+               var userMonstr: String = null
+               if (value.toString.contains("M")) userMonstr = value.toString.replace("M", "")
+               else userMonstr = value.toString
+               val userMon = userMonstr.split("-")
 
-             if (partType == 3){
-               partiVals.foreach(pv =>{
-                 val partMon = pv.replace("M", "").split(".")
-                 if (Utils.countMonths(partMon(0).toInt, partMon(1).toInt) ==
-                   Utils.countMonths(userMon(0).toInt, userMon(1).toInt)) typeFlag = true
-               })
-             } else if (partType == 2) {
-               val partMon0 = partiVals(0).replace("M", "").split(".")
-               val partMon1 = partiVals(1).replace("M", "").split(".")
-               if ((partMon0(0).toInt == partMon1(0).toInt && partMon0(1).toInt == partMon1(1).toInt &&
-                 Utils.countMonths(partMon0(0).toInt, partMon0(1).toInt) ==
-                   Utils.countMonths(userMon(0).toInt, userMon(1).toInt))) typeFlag = true
-               else if ((Utils.countMonths(partMon0(0).toInt, partMon0(1).toInt) <= Utils.countMonths(userMon(0).toInt, userMon(1).toInt) &&
-                     Utils.countMonths(userMon(0).toInt, userMon(1).toInt) < Utils.countMonths(partMon1(0).toInt, partMon1(1).toInt)) ||
-                 (Utils.countMonths(partMon0(0).toInt, partMon0(1).toInt) >= Utils.countMonths(userMon(0).toInt, userMon(1).toInt) &&
-                   Utils.countMonths(userMon(0).toInt, userMon(1).toInt) > Utils.countMonths(partMon1(0).toInt, partMon1(1).toInt))) typeFlag = true
-             } else {
-               val partMon = partiVals(0).replace("M", "").split(".")
-               if (Utils.countMonths(partMon(0).toInt, partMon(1).toInt) ==
-                 Utils.countMonths(userMon(0).toInt, userMon(1).toInt)) typeFlag = true
-             }
-             if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
-               flagPart = true
-             }
-           }
-           case LessThan(attr, value) => {
-             var typeFlag = false
-             var userMonstr :String = null
-             if (value.toString.contains("M")){
-               userMonstr = value.toString.replace("M", "")
-             } else {
-               userMonstr = value.toString
-             }
-             val userMon = userMonstr.split("-")
-
-             if (partType == 3){
-               partiVals.foreach(pv =>{
-                 val partMon = pv.replace("M", "").split(".")
-                 if (Utils.countMonths(partMon(0).toInt, partMon(1).toInt) <
-                   Utils.countMonths(userMon(0).toInt, userMon(1).toInt)) typeFlag = true
-               })
-             } else if (partType == 2) {
-               val partMon0 = partiVals(0).replace("M", "").split(".")
-               val partMon1 = partiVals(1).replace("M", "").split(".")
-               if ((Utils.countMonths(partMon0(0).toInt, partMon0(1).toInt) < Utils.countMonths(userMon(0).toInt, userMon(1).toInt) ||
-                 Utils.countMonths(partMon1(0).toInt, partMon1(1).toInt) < Utils.countMonths(userMon(0).toInt, userMon(1).toInt)))
-                  typeFlag = true
-             } else {
-               val partMon = partiVals(0).replace("M", "").split(".")
-               if (Utils.countMonths(partMon(0).toInt, partMon(1).toInt) <
-                 Utils.countMonths(userMon(0).toInt, userMon(1).toInt)) typeFlag = true
-             }
-
-             if (attr.equalsIgnoreCase(partCol) && typeFlag) {
-               flagPart = true
-             }
-           }
-           case GreaterThan(attr, value) => {
-             var userMonstr :String = null
-             var typeFlag = false
-             if (value.toString.contains("M")){
-               userMonstr = value.toString.replace("M", "")
-             } else {
-               userMonstr = value.toString
-             }
-             val userMon = userMonstr.split("-")
-
-             if (partType == 3){
-               partiVals.foreach(pv =>{
-                 val partMon = pv.replace("M", "").split(".")
-                 if (Utils.countMonths(partMon(0).toInt, partMon(1).toInt) >
-                   Utils.countMonths(userMon(0).toInt, userMon(1).toInt)) typeFlag = true
-               })
-             } else if (partType == 2) {
-               val partMon0 = partiVals(0).replace("M", "").split(".")
-               val partMon1 = partiVals(1).replace("M", "").split(".")
-               if ((Utils.countMonths(partMon0(0).toInt, partMon0(1).toInt) > Utils.countMonths(userMon(0).toInt, userMon(1).toInt) ||
-                 Utils.countMonths(partMon1(0).toInt, partMon1(1).toInt) > Utils.countMonths(userMon(0).toInt, userMon(1).toInt)))
-                 typeFlag = true
-             } else {
-               val partMon = partiVals(0).replace("M", "").split(".")
-               if (Utils.countMonths(partMon(0).toInt, partMon(1).toInt) >
-                 Utils.countMonths(userMon(0).toInt, userMon(1).toInt)) typeFlag = true
-             }
-
-             if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
-               flagPart = true
-             }
-           }
-           case LessThanOrEqual(attr, value) => {
-             var typeFlag = false
-             var userMonstr :String = null
-             if (value.toString.contains("M")){
-               userMonstr = value.toString.replace("M", "")
-             } else {
-               userMonstr = value.toString
-             }
-             val userMon = userMonstr.split("-")
-
-             if (partType == 3){
-               partiVals.foreach(pv =>{
-                 val partMon = pv.replace("M", "").split(".")
-                 if (Utils.countMonths(partMon(0).toInt, partMon(1).toInt) <=
-                   Utils.countMonths(userMon(0).toInt, userMon(1).toInt)) typeFlag = true
-               })
-             } else if (partType == 2) {
-               val partMon0 = partiVals(0).replace("M", "").split(".")
-               val partMon1 = partiVals(1).replace("M", "").split(".")
-               if ((Utils.countMonths(partMon0(0).toInt, partMon0(1).toInt) <= Utils.countMonths(userMon(0).toInt, userMon(1).toInt) ||
-                 Utils.countMonths(partMon1(0).toInt, partMon1(1).toInt) <= Utils.countMonths(userMon(0).toInt, userMon(1).toInt)))
-                 typeFlag = true
-             } else {
-               val partMon = partiVals(0).replace("M", "").split(".")
-               if (Utils.countMonths(partMon(0).toInt, partMon(1).toInt) <=
-                 Utils.countMonths(userMon(0).toInt, userMon(1).toInt)) typeFlag = true
-             }
-
-             if ((attr.equalsIgnoreCase(partCol) && typeFlag )) {
-               flagPart = true
-             }
-           }
-           case GreaterThanOrEqual(attr, value) => {
-             var userMonstr :String = null
-             var typeFlag = false
-             if (value.toString.contains("M")){
-               userMonstr = value.toString.replace("M", "")
-             } else {
-               userMonstr = value.toString
-             }
-             val userMon = userMonstr.split("-")
-
-             if (partType == 3){
-               partiVals.foreach(pv =>{
-                 val partMon = pv.replace("M", "").split(".")
-                 if (Utils.countMonths(partMon(0).toInt, partMon(1).toInt) >=
-                   Utils.countMonths(userMon(0).toInt, userMon(1).toInt)) typeFlag = true
-               })
-             } else if (partType == 2) {
-               val partMon0 = partiVals(0).replace("M", "").split(".")
-               val partMon1 = partiVals(1).replace("M", "").split(".")
-               if ((Utils.countMonths(partMon0(0).toInt, partMon0(1).toInt) >= Utils.countMonths(userMon(0).toInt, userMon(1).toInt) ||
-                 Utils.countMonths(partMon1(0).toInt, partMon1(1).toInt) >= Utils.countMonths(userMon(0).toInt, userMon(1).toInt)))
-                 typeFlag = true
-             } else {
-               val partMon = partiVals(0).replace("M", "").split(".")
-               if (Utils.countMonths(partMon(0).toInt, partMon(1).toInt) >=
-                 Utils.countMonths(userMon(0).toInt, userMon(1).toInt)) typeFlag = true
-             }
-             if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
-               flagPart = true
-             }
-           }
-           case In(attr, value) => {
-             var typeFlag = false
-             value.foreach { v =>
-               var mon: String = null
-               if (v.toString.contains("M")) {
-                 mon = v.toString.replace("M", "")
-               } else {
-                 mon = v.toString
-               }
-               val monInt = mon.split("-")
-
-               if (partType == 3){
-                 partiVals.foreach(pv =>{
+               if (partiType == 3) {
+                 partiVals.foreach(pv => {
                    val partMon = pv.replace("M", "").split(".")
-                   if (Utils.countMonths(monInt(0).toInt, monInt(1).toInt) ==
-                      Utils.countMonths(partMon(0).toInt, partMon(1).toInt)) typeFlag = true
+                   if (Utils.countMonths(partMon(0).toInt, partMon(1).toInt) ==
+                     Utils.countMonths(userMon(0).toInt, userMon(1).toInt)) typeFlag = true
                  })
-               } else if (partType == 2) {
+               } else if (partiType == 2) {
                  val partMon0 = partiVals(0).replace("M", "").split(".")
                  val partMon1 = partiVals(1).replace("M", "").split(".")
-                 if (partiVals(0).equals(partiVals(1)) && Utils.countMonths(partMon0(0).toInt, partMon0(1).toInt) ==
-                   Utils.countMonths(monInt(0).toInt, monInt(1).toInt)) typeFlag = true
-                 else if ((Utils.countMonths(partMon0(0).toInt, partMon0(1).toInt) <= Utils.countMonths(monInt(0).toInt, monInt(1).toInt) &&
-                   Utils.countMonths(monInt(0).toInt, monInt(1).toInt) < Utils.countMonths(partMon1(0).toInt, partMon1(1).toInt)) ||
-                   (Utils.countMonths(partMon0(0).toInt, partMon0(1).toInt) > Utils.countMonths(monInt(0).toInt, monInt(1).toInt) &&
-                     Utils.countMonths(monInt(0).toInt, monInt(1).toInt) >= Utils.countMonths(partMon1(0).toInt, partMon1(1).toInt)))
-                   typeFlag = true
+                 if ((partMon0(0).toInt == partMon1(0).toInt && partMon0(1).toInt == partMon1(1).toInt &&
+                   Utils.countMonths(partMon0(0).toInt, partMon0(1).toInt) ==
+                     Utils.countMonths(userMon(0).toInt, userMon(1).toInt))) typeFlag = true
+                 else if ((Utils.countMonths(partMon0(0).toInt, partMon0(1).toInt) <= Utils.countMonths(userMon(0).toInt, userMon(1).toInt) &&
+                   Utils.countMonths(userMon(0).toInt, userMon(1).toInt) < Utils.countMonths(partMon1(0).toInt, partMon1(1).toInt)) ||
+                   (Utils.countMonths(partMon0(0).toInt, partMon0(1).toInt) >= Utils.countMonths(userMon(0).toInt, userMon(1).toInt) &&
+                     Utils.countMonths(userMon(0).toInt, userMon(1).toInt) > Utils.countMonths(partMon1(0).toInt, partMon1(1).toInt))) typeFlag = true
                } else {
                  val partMon = partiVals(0).replace("M", "").split(".")
                  if (Utils.countMonths(partMon(0).toInt, partMon(1).toInt) ==
-                   Utils.countMonths(monInt(0).toInt, monInt(1).toInt)) typeFlag = true
+                   Utils.countMonths(userMon(0).toInt, userMon(1).toInt)) typeFlag = true
+               }
+               if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
+                 flagPart = true
                }
              }
-             if (attr.equalsIgnoreCase(partCol) && typeFlag) {
-               flagPart = true
+           }
+           case LessThan(attr, value) => {
+             if (attr.equalsIgnoreCase(partCol)) {
+               var typeFlag = false
+               var userMonstr: String = null
+               if (value.toString.contains("M")) {
+                 userMonstr = value.toString.replace("M", "")
+               } else {
+                 userMonstr = value.toString
+               }
+               val userMon = userMonstr.split("-")
+
+               if (partiType == 3) {
+                 partiVals.foreach(pv => {
+                   val partMon = pv.replace("M", "").split(".")
+                   if (Utils.countMonths(partMon(0).toInt, partMon(1).toInt) <
+                     Utils.countMonths(userMon(0).toInt, userMon(1).toInt)) typeFlag = true
+                 })
+               } else if (partiType == 2) {
+                 val partMon0 = partiVals(0).replace("M", "").split(".")
+                 val partMon1 = partiVals(1).replace("M", "").split(".")
+                 if ((Utils.countMonths(partMon0(0).toInt, partMon0(1).toInt) < Utils.countMonths(userMon(0).toInt, userMon(1).toInt) ||
+                   Utils.countMonths(partMon1(0).toInt, partMon1(1).toInt) < Utils.countMonths(userMon(0).toInt, userMon(1).toInt)))
+                   typeFlag = true
+               } else {
+                 val partMon = partiVals(0).replace("M", "").split(".")
+                 if (Utils.countMonths(partMon(0).toInt, partMon(1).toInt) <
+                   Utils.countMonths(userMon(0).toInt, userMon(1).toInt)) typeFlag = true
+               }
+
+               if (attr.equalsIgnoreCase(partCol) && typeFlag) {
+                 flagPart = true
+               }
+             }
+           }
+           case GreaterThan(attr, value) => {
+             if (attr.equalsIgnoreCase(partCol)) {
+               var userMonstr: String = null
+               var typeFlag = false
+               if (value.toString.contains("M")) {
+                 userMonstr = value.toString.replace("M", "")
+               } else {
+                 userMonstr = value.toString
+               }
+               val userMon = userMonstr.split("-")
+
+               if (partiType == 3) {
+                 partiVals.foreach(pv => {
+                   val partMon = pv.replace("M", "").split(".")
+                   if (Utils.countMonths(partMon(0).toInt, partMon(1).toInt) >
+                     Utils.countMonths(userMon(0).toInt, userMon(1).toInt)) typeFlag = true
+                 })
+               } else if (partiType == 2) {
+                 val partMon0 = partiVals(0).replace("M", "").split(".")
+                 val partMon1 = partiVals(1).replace("M", "").split(".")
+                 if ((Utils.countMonths(partMon0(0).toInt, partMon0(1).toInt) > Utils.countMonths(userMon(0).toInt, userMon(1).toInt) ||
+                   Utils.countMonths(partMon1(0).toInt, partMon1(1).toInt) > Utils.countMonths(userMon(0).toInt, userMon(1).toInt)))
+                   typeFlag = true
+               } else {
+                 val partMon = partiVals(0).replace("M", "").split(".")
+                 if (Utils.countMonths(partMon(0).toInt, partMon(1).toInt) >
+                   Utils.countMonths(userMon(0).toInt, userMon(1).toInt)) typeFlag = true
+               }
+
+               if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
+                 flagPart = true
+               }
+             }
+           }
+           case LessThanOrEqual(attr, value) => {
+             if (attr.equalsIgnoreCase(partCol)) {
+               var typeFlag = false
+               var userMonstr: String = null
+               if (value.toString.contains("M")) {
+                 userMonstr = value.toString.replace("M", "")
+               } else {
+                 userMonstr = value.toString
+               }
+               val userMon = userMonstr.split("-")
+
+               if (partiType == 3) {
+                 partiVals.foreach(pv => {
+                   val partMon = pv.replace("M", "").split(".")
+                   if (Utils.countMonths(partMon(0).toInt, partMon(1).toInt) <=
+                     Utils.countMonths(userMon(0).toInt, userMon(1).toInt)) typeFlag = true
+                 })
+               } else if (partiType == 2) {
+                 val partMon0 = partiVals(0).replace("M", "").split(".")
+                 val partMon1 = partiVals(1).replace("M", "").split(".")
+                 if ((Utils.countMonths(partMon0(0).toInt, partMon0(1).toInt) <= Utils.countMonths(userMon(0).toInt, userMon(1).toInt) ||
+                   Utils.countMonths(partMon1(0).toInt, partMon1(1).toInt) <= Utils.countMonths(userMon(0).toInt, userMon(1).toInt)))
+                   typeFlag = true
+               } else {
+                 val partMon = partiVals(0).replace("M", "").split(".")
+                 if (Utils.countMonths(partMon(0).toInt, partMon(1).toInt) <=
+                   Utils.countMonths(userMon(0).toInt, userMon(1).toInt)) typeFlag = true
+               }
+
+               if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
+                 flagPart = true
+               }
+             }
+           }
+           case GreaterThanOrEqual(attr, value) => {
+             if (attr.equalsIgnoreCase(partCol)) {
+               var userMonstr: String = null
+               var typeFlag = false
+               if (value.toString.contains("M")) {
+                 userMonstr = value.toString.replace("M", "")
+               } else {
+                 userMonstr = value.toString
+               }
+               val userMon = userMonstr.split("-")
+
+               if (partiType == 3) {
+                 partiVals.foreach(pv => {
+                   val partMon = pv.replace("M", "").split(".")
+                   if (Utils.countMonths(partMon(0).toInt, partMon(1).toInt) >=
+                     Utils.countMonths(userMon(0).toInt, userMon(1).toInt)) typeFlag = true
+                 })
+               } else if (partiType == 2) {
+                 val partMon0 = partiVals(0).replace("M", "").split(".")
+                 val partMon1 = partiVals(1).replace("M", "").split(".")
+                 if ((Utils.countMonths(partMon0(0).toInt, partMon0(1).toInt) >= Utils.countMonths(userMon(0).toInt, userMon(1).toInt) ||
+                   Utils.countMonths(partMon1(0).toInt, partMon1(1).toInt) >= Utils.countMonths(userMon(0).toInt, userMon(1).toInt)))
+                   typeFlag = true
+               } else {
+                 val partMon = partiVals(0).replace("M", "").split(".")
+                 if (Utils.countMonths(partMon(0).toInt, partMon(1).toInt) >=
+                   Utils.countMonths(userMon(0).toInt, userMon(1).toInt)) typeFlag = true
+               }
+               if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
+                 flagPart = true
+               }
+             }
+           }
+           case In(attr, value) => {
+             if (attr.equalsIgnoreCase(partCol)) {
+               var typeFlag = false
+               value.foreach { v =>
+                 var mon: String = null
+                 if (v.toString.contains("M")) {
+                   mon = v.toString.replace("M", "")
+                 } else {
+                   mon = v.toString
+                 }
+                 val monInt = mon.split("-")
+
+                 if (partiType == 3) {
+                   partiVals.foreach(pv => {
+                     val partMon = pv.replace("M", "").split(".")
+                     if (Utils.countMonths(monInt(0).toInt, monInt(1).toInt) ==
+                       Utils.countMonths(partMon(0).toInt, partMon(1).toInt)) typeFlag = true
+                   })
+                 } else if (partiType == 2) {
+                   val partMon0 = partiVals(0).replace("M", "").split(".")
+                   val partMon1 = partiVals(1).replace("M", "").split(".")
+                   if (partiVals(0).equals(partiVals(1)) && Utils.countMonths(partMon0(0).toInt, partMon0(1).toInt) ==
+                     Utils.countMonths(monInt(0).toInt, monInt(1).toInt)) typeFlag = true
+                   else if ((Utils.countMonths(partMon0(0).toInt, partMon0(1).toInt) <= Utils.countMonths(monInt(0).toInt, monInt(1).toInt) &&
+                     Utils.countMonths(monInt(0).toInt, monInt(1).toInt) < Utils.countMonths(partMon1(0).toInt, partMon1(1).toInt)) ||
+                     (Utils.countMonths(partMon0(0).toInt, partMon0(1).toInt) > Utils.countMonths(monInt(0).toInt, monInt(1).toInt) &&
+                       Utils.countMonths(monInt(0).toInt, monInt(1).toInt) >= Utils.countMonths(partMon1(0).toInt, partMon1(1).toInt)))
+                     typeFlag = true
+                 } else {
+                   val partMon = partiVals(0).replace("M", "").split(".")
+                   if (Utils.countMonths(partMon(0).toInt, partMon(1).toInt) ==
+                     Utils.countMonths(monInt(0).toInt, monInt(1).toInt)) typeFlag = true
+                 }
+               }
+               if (attr.equalsIgnoreCase(partCol) && typeFlag) {
+                 flagPart = true
+               }
              }
            }
            case Not(f) => {
@@ -1030,145 +1099,23 @@ case class DolphinDBPartitioner(option: DolphinDBOptions) extends Serializable {
            }
            case _ =>
          })
-       }*/ else if (partType.equals("TIME")) {
+       }*/ else if (colType.equals("TIME")) {
          partFilter.foreach(f => f match {
            case EqualTo(attr, value) => {
-             var typeFlag = false
-             var userTime : String = null
-             if (value.toString.contains(" ") || value.toString.contains("T")) { userTime = value.toString.split("[ T]")(1) }
-             else userTime = value.toString
-             val userTimeInt = Utils.countMilliseconds(LocalTime.parse(userTime))
-             if (partType == 3) {
-               partiVals.foreach(pv => {
-                 val partTimeInt = Utils.countMilliseconds(LocalTime.parse(pv.toString))
-                 if (partTimeInt == userTimeInt) typeFlag = true
-               })
-             } else if (partType == 2) {
-               val partTimeInt0 = Utils.countMilliseconds(LocalTime.parse(partiVals(0).toString))
-               val partTimeInt1 = Utils.countMilliseconds(LocalTime.parse(partiVals(1).toString))
-               if (partTimeInt0 == partTimeInt1 && partTimeInt0 == userTimeInt) typeFlag = true
-               else if ((partTimeInt0 <= userTimeInt && userTimeInt < partTimeInt1) ||
-                            partTimeInt1 <= userTimeInt && userTimeInt < partTimeInt0) typeFlag = true
-             } else {
-               val partTimeInt = Utils.countMilliseconds(LocalTime.parse(partiVals(0)))
-               if(partTimeInt == userTimeInt) typeFlag = true
-             }
-
-             if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
-               flagPart = true
-             }
-           }
-           case LessThan(attr, value) => {
-             var typeFlag = false
-             var userTime : String = null
-             if (value.toString.contains(" ") || value.toString.contains("T")) { userTime = value.toString.split("[ T]")(1) }
-             else userTime = value.toString
-             val userTimeInt = Utils.countMilliseconds(LocalTime.parse(userTime))
-
-             if (partType == 3) {
-               partiVals.foreach(pv => {
-                 val partTimeInt = Utils.countMilliseconds(LocalTime.parse(pv.toString))
-                 if (partTimeInt < userTimeInt) typeFlag = true
-               })
-             } else if (partType == 2) {
-               val partTimeInt0 = Utils.countMilliseconds(LocalTime.parse(partiVals(0).toString))
-               val partTimeInt1 = Utils.countMilliseconds(LocalTime.parse(partiVals(1).toString))
-               if ((partTimeInt0 < userTimeInt || partTimeInt1 < userTimeInt)) typeFlag = true
-             } else {
-               val partTimeInt = Utils.countMilliseconds(LocalTime.parse(partiVals(0)))
-               if(partTimeInt < userTimeInt) typeFlag = true
-             }
-
-             if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
-               flagPart = true
-             }
-           }
-           case GreaterThan(attr, value) => {
-             var userTime : String = null
-             var typeFlag = false
-             if (value.toString.contains(" ") || value.toString.contains("T")) { userTime = value.toString.split("[ T]")(1) }
-             else userTime = value.toString
-             val userTimeInt = Utils.countMilliseconds(LocalTime.parse(userTime))
-
-             if (partType == 3) {
-               partiVals.foreach(pv => {
-                 val partTimeInt = Utils.countMilliseconds(LocalTime.parse(pv.toString))
-                 if (partTimeInt > userTimeInt) typeFlag = true
-               })
-             } else if (partType == 2) {
-               val partTimeInt0 = Utils.countMilliseconds(LocalTime.parse(partiVals(0).toString))
-               val partTimeInt1 = Utils.countMilliseconds(LocalTime.parse(partiVals(1).toString))
-               if ((partTimeInt0 > userTimeInt || partTimeInt1 > userTimeInt)) typeFlag = true
-             } else {
-               val partTimeInt = Utils.countMilliseconds(LocalTime.parse(partiVals(0)))
-               if(partTimeInt > userTimeInt) typeFlag = true
-             }
-
-             if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
-               flagPart = true
-             }
-           }
-           case LessThanOrEqual(attr, value) => {
-             var userTime : String = null
-             var typeFlag = false
-             if (value.toString.contains(" ") || value.toString.contains("T")) { userTime = value.toString.split("[ T]")(1) }
-             else userTime = value.toString
-             val userTimeInt = Utils.countMilliseconds(LocalTime.parse(userTime))
-             if (partType == 3) {
-               partiVals.foreach(pv => {
-                 val partTimeInt = Utils.countMilliseconds(LocalTime.parse(pv.toString))
-                 if (partTimeInt <= userTimeInt) typeFlag = true
-               })
-             } else if (partType == 2) {
-               val partTimeInt0 = Utils.countMilliseconds(LocalTime.parse(partiVals(0).toString))
-               val partTimeInt1 = Utils.countMilliseconds(LocalTime.parse(partiVals(1).toString))
-               if ((partTimeInt0 <= userTimeInt || partTimeInt1 <= userTimeInt)) typeFlag = true
-             } else {
-               val partTimeInt = Utils.countMilliseconds(LocalTime.parse(partiVals(0)))
-               if(partTimeInt <= userTimeInt) typeFlag = true
-             }
-             if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
-               flagPart = true
-             }
-           }
-           case GreaterThanOrEqual(attr, value) => {
-             var userTime : String = null
-             var typeFlag = false
-             if (value.toString.contains(" ") || value.toString.contains("T")) { userTime = value.toString.split("[ T]")(1) }
-             else userTime = value.toString
-             val userTimeInt = Utils.countMilliseconds(LocalTime.parse(userTime))
-
-             if (partType == 3) {
-               partiVals.foreach(pv => {
-                 val partTimeInt = Utils.countMilliseconds(LocalTime.parse(pv.toString))
-                 if (partTimeInt >= userTimeInt) typeFlag = true
-               })
-             } else if (partType == 2) {
-               val partTimeInt0 = Utils.countMilliseconds(LocalTime.parse(partiVals(0).toString))
-               val partTimeInt1 = Utils.countMilliseconds(LocalTime.parse(partiVals(1).toString))
-               if ((partTimeInt0 >= userTimeInt || partTimeInt1 >= userTimeInt)) typeFlag = true
-             } else {
-               val partTimeInt = Utils.countMilliseconds(LocalTime.parse(partiVals(0)))
-               if(partTimeInt >= userTimeInt) typeFlag = true
-             }
-             if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
-               flagPart = true
-             }
-           }
-           case In(attr, value) => {
-             var typeFlag = false
-             value.foreach(v => {
-               var userTime : String = null
-               if (v.toString.contains(" ") || v.toString.contains("T")) { userTime = v.toString.split("[ T]")(1) }
-               else userTime = v.toString
+             if (attr.equalsIgnoreCase(partCol)) {
+               var typeFlag = false
+               var userTime: String = null
+               if (value.toString.contains(" ") || value.toString.contains("T")) {
+                 userTime = value.toString.split("[ T]")(1)
+               }
+               else userTime = value.toString
                val userTimeInt = Utils.countMilliseconds(LocalTime.parse(userTime))
-
-               if (partType == 3) {
+               if (partiType == 3) {
                  partiVals.foreach(pv => {
                    val partTimeInt = Utils.countMilliseconds(LocalTime.parse(pv.toString))
                    if (partTimeInt == userTimeInt) typeFlag = true
                  })
-               } else if (partType == 2) {
+               } else if (partiType == 2) {
                  val partTimeInt0 = Utils.countMilliseconds(LocalTime.parse(partiVals(0).toString))
                  val partTimeInt1 = Utils.countMilliseconds(LocalTime.parse(partiVals(1).toString))
                  if (partTimeInt0 == partTimeInt1 && partTimeInt0 == userTimeInt) typeFlag = true
@@ -1176,11 +1123,157 @@ case class DolphinDBPartitioner(option: DolphinDBOptions) extends Serializable {
                    partTimeInt1 <= userTimeInt && userTimeInt < partTimeInt0) typeFlag = true
                } else {
                  val partTimeInt = Utils.countMilliseconds(LocalTime.parse(partiVals(0)))
-                 if(partTimeInt == userTimeInt) typeFlag = true
+                 if (partTimeInt == userTimeInt) typeFlag = true
                }
-             })
-             if (attr.equalsIgnoreCase(partCol) && typeFlag) {
-               flagPart = true
+
+               if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
+                 flagPart = true
+               }
+             }
+           }
+           case LessThan(attr, value) => {
+             if (attr.equalsIgnoreCase(partCol)) {
+               var typeFlag = false
+               var userTime: String = null
+               if (value.toString.contains(" ") || value.toString.contains("T")) {
+                 userTime = value.toString.split("[ T]")(1)
+               }
+               else userTime = value.toString
+               val userTimeInt = Utils.countMilliseconds(LocalTime.parse(userTime))
+
+               if (partiType == 3) {
+                 partiVals.foreach(pv => {
+                   val partTimeInt = Utils.countMilliseconds(LocalTime.parse(pv.toString))
+                   if (partTimeInt < userTimeInt) typeFlag = true
+                 })
+               } else if (partiType == 2) {
+                 val partTimeInt0 = Utils.countMilliseconds(LocalTime.parse(partiVals(0).toString))
+                 val partTimeInt1 = Utils.countMilliseconds(LocalTime.parse(partiVals(1).toString))
+                 if ((partTimeInt0 < userTimeInt || partTimeInt1 < userTimeInt)) typeFlag = true
+               } else {
+                 val partTimeInt = Utils.countMilliseconds(LocalTime.parse(partiVals(0)))
+                 if (partTimeInt < userTimeInt) typeFlag = true
+               }
+
+               if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
+                 flagPart = true
+               }
+             }
+           }
+           case GreaterThan(attr, value) => {
+             if (attr.equalsIgnoreCase(partCol)) {
+               var userTime: String = null
+               var typeFlag = false
+               if (value.toString.contains(" ") || value.toString.contains("T")) {
+                 userTime = value.toString.split("[ T]")(1)
+               }
+               else userTime = value.toString
+               val userTimeInt = Utils.countMilliseconds(LocalTime.parse(userTime))
+
+               if (partiType == 3) {
+                 partiVals.foreach(pv => {
+                   val partTimeInt = Utils.countMilliseconds(LocalTime.parse(pv.toString))
+                   if (partTimeInt > userTimeInt) typeFlag = true
+                 })
+               } else if (partiType == 2) {
+                 val partTimeInt0 = Utils.countMilliseconds(LocalTime.parse(partiVals(0).toString))
+                 val partTimeInt1 = Utils.countMilliseconds(LocalTime.parse(partiVals(1).toString))
+                 if ((partTimeInt0 > userTimeInt || partTimeInt1 > userTimeInt)) typeFlag = true
+               } else {
+                 val partTimeInt = Utils.countMilliseconds(LocalTime.parse(partiVals(0)))
+                 if (partTimeInt > userTimeInt) typeFlag = true
+               }
+
+               if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
+                 flagPart = true
+               }
+             }
+           }
+           case LessThanOrEqual(attr, value) => {
+             if (attr.equalsIgnoreCase(partCol)) {
+               var userTime: String = null
+               var typeFlag = false
+               if (value.toString.contains(" ") || value.toString.contains("T")) {
+                 userTime = value.toString.split("[ T]")(1)
+               }
+               else userTime = value.toString
+               val userTimeInt = Utils.countMilliseconds(LocalTime.parse(userTime))
+               if (partiType == 3) {
+                 partiVals.foreach(pv => {
+                   val partTimeInt = Utils.countMilliseconds(LocalTime.parse(pv.toString))
+                   if (partTimeInt <= userTimeInt) typeFlag = true
+                 })
+               } else if (partiType == 2) {
+                 val partTimeInt0 = Utils.countMilliseconds(LocalTime.parse(partiVals(0).toString))
+                 val partTimeInt1 = Utils.countMilliseconds(LocalTime.parse(partiVals(1).toString))
+                 if ((partTimeInt0 <= userTimeInt || partTimeInt1 <= userTimeInt)) typeFlag = true
+               } else {
+                 val partTimeInt = Utils.countMilliseconds(LocalTime.parse(partiVals(0)))
+                 if (partTimeInt <= userTimeInt) typeFlag = true
+               }
+               if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
+                 flagPart = true
+               }
+             }
+           }
+           case GreaterThanOrEqual(attr, value) => {
+             if (attr.equalsIgnoreCase(partCol)) {
+               var userTime: String = null
+               var typeFlag = false
+               if (value.toString.contains(" ") || value.toString.contains("T")) {
+                 userTime = value.toString.split("[ T]")(1)
+               }
+               else userTime = value.toString
+               val userTimeInt = Utils.countMilliseconds(LocalTime.parse(userTime))
+
+               if (partiType == 3) {
+                 partiVals.foreach(pv => {
+                   val partTimeInt = Utils.countMilliseconds(LocalTime.parse(pv.toString))
+                   if (partTimeInt >= userTimeInt) typeFlag = true
+                 })
+               } else if (partiType == 2) {
+                 val partTimeInt0 = Utils.countMilliseconds(LocalTime.parse(partiVals(0).toString))
+                 val partTimeInt1 = Utils.countMilliseconds(LocalTime.parse(partiVals(1).toString))
+                 if ((partTimeInt0 >= userTimeInt || partTimeInt1 >= userTimeInt)) typeFlag = true
+               } else {
+                 val partTimeInt = Utils.countMilliseconds(LocalTime.parse(partiVals(0)))
+                 if (partTimeInt >= userTimeInt) typeFlag = true
+               }
+               if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
+                 flagPart = true
+               }
+             }
+           }
+           case In(attr, value) => {
+             if (attr.equalsIgnoreCase(partCol)) {
+               var typeFlag = false
+               value.foreach(v => {
+                 var userTime: String = null
+                 if (v.toString.contains(" ") || v.toString.contains("T")) {
+                   userTime = v.toString.split("[ T]")(1)
+                 }
+                 else userTime = v.toString
+                 val userTimeInt = Utils.countMilliseconds(LocalTime.parse(userTime))
+
+                 if (partiType == 3) {
+                   partiVals.foreach(pv => {
+                     val partTimeInt = Utils.countMilliseconds(LocalTime.parse(pv.toString))
+                     if (partTimeInt == userTimeInt) typeFlag = true
+                   })
+                 } else if (partiType == 2) {
+                   val partTimeInt0 = Utils.countMilliseconds(LocalTime.parse(partiVals(0).toString))
+                   val partTimeInt1 = Utils.countMilliseconds(LocalTime.parse(partiVals(1).toString))
+                   if (partTimeInt0 == partTimeInt1 && partTimeInt0 == userTimeInt) typeFlag = true
+                   else if ((partTimeInt0 <= userTimeInt && userTimeInt < partTimeInt1) ||
+                     partTimeInt1 <= userTimeInt && userTimeInt < partTimeInt0) typeFlag = true
+                 } else {
+                   val partTimeInt = Utils.countMilliseconds(LocalTime.parse(partiVals(0)))
+                   if (partTimeInt == userTimeInt) typeFlag = true
+                 }
+               })
+               if (attr.equalsIgnoreCase(partCol) && typeFlag) {
+                 flagPart = true
+               }
              }
            }
            case Not(f) => {
@@ -1202,150 +1295,24 @@ case class DolphinDBPartitioner(option: DolphinDBOptions) extends Serializable {
            }
            case _ =>
          })
-       } else if (partType.equals("MINUTE")) {
+       } else if (colType.equals("MINUTE")) {
          partFilter.foreach(f => f match {
            case EqualTo(attr, value) => {
-             var typeFlag = false
-             var userMin : String = null
-             if (value.toString.contains(" ") || value.toString.contains("T")) { userMin = value.toString.split("[ T]")(1) }
-             else userMin = value.toString
-             val userMinInt = Utils.countMinutes(LocalTime.parse(userMin))
-
-             if (partType == 3) {
-               partiVals.foreach(pv => {
-                 val partMinInt = Utils.countMinutes(LocalTime.parse(pv.toString.replace("m", "")))
-                 if (partMinInt == userMinInt) typeFlag = true
-               })
-             } else if (partType == 2) {
-               val partMinInt0 = Utils.countMinutes(LocalTime.parse(partiVals(0).toString.replace("m", "")))
-               val partMinInt1 = Utils.countMinutes(LocalTime.parse(partiVals(1).toString.replace("m", "")))
-               if (partMinInt0 == partMinInt1 && partMinInt0 == userMinInt) typeFlag = true
-               else if ((partMinInt0 <= userMinInt && userMinInt < partMinInt1) ||
-                 partMinInt1 <= userMinInt && userMinInt < partMinInt0) typeFlag = true
-             } else {
-               val partMinInt = Utils.countMinutes(LocalTime.parse(partiVals(0).toString.replace("m", "")))
-               if(partMinInt == userMinInt) typeFlag = true
-             }
-
-             if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
-               flagPart = true
-             }
-           }
-           case LessThan(attr, value) => {
-             var typeFlag = false
-             var userMin : String = null
-             if (value.toString.contains(" ") || value.toString.contains("T")) { userMin = value.toString.split("[ T]")(1) }
-             else userMin = value.toString
-             val userMinInt = Utils.countMinutes(LocalTime.parse(userMin))
-
-             if (partType == 3) {
-               partiVals.foreach(pv => {
-                 val partMinInt = Utils.countMinutes(LocalTime.parse(pv.toString.replace("m", "")))
-                 if (partMinInt < userMinInt) typeFlag = true
-               })
-             } else if (partType == 2) {
-               val partMinInt0 = Utils.countMinutes(LocalTime.parse(partiVals(0).toString.replace("m", "")))
-               val partMinInt1 = Utils.countMinutes(LocalTime.parse(partiVals(1).toString.replace("m", "")))
-               if ((partMinInt0 < userMinInt || partMinInt1 < userMinInt)) typeFlag = true
-             } else {
-               val partMinInt = Utils.countMinutes(LocalTime.parse(partiVals(0).toString.replace("m", "")))
-               if(partMinInt < userMinInt) typeFlag = true
-             }
-
-             if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
-               flagPart = true
-             }
-           }
-           case GreaterThan(attr, value) => {
-             var typeFlag = false
-             var userMin : String = null
-             if (value.toString.contains(" ") || value.toString.contains("T")) { userMin = value.toString.split("[ T]")(1) }
-             else userMin = value.toString
-             val userMinInt = Utils.countMinutes(LocalTime.parse(userMin))
-
-             if (partType == 3) {
-               partiVals.foreach(pv => {
-                 val partMinInt = Utils.countMinutes(LocalTime.parse(pv.toString.replace("m", "")))
-                 if (partMinInt > userMinInt) typeFlag = true
-               })
-             } else if (partType == 2) {
-               val partMinInt0 = Utils.countMinutes(LocalTime.parse(partiVals(0).toString.replace("m", "")))
-               val partMinInt1 = Utils.countMinutes(LocalTime.parse(partiVals(1).toString.replace("m", "")))
-               if ((partMinInt0 > userMinInt || partMinInt1 > userMinInt)) typeFlag = true
-             } else {
-               val partMinInt = Utils.countMinutes(LocalTime.parse(partiVals(0).toString.replace("m", "")))
-               if(partMinInt > userMinInt) typeFlag = true
-             }
-
-             if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
-               flagPart = true
-             }
-           }
-           case LessThanOrEqual(attr, value) => {
-             var typeFlag = false
-             var userMin : String = null
-             if (value.toString.contains(" ") || value.toString.contains("T")) { userMin = value.toString.split("[ T]")(1) }
-             else userMin = value.toString
-             val userMinInt = Utils.countMinutes(LocalTime.parse(userMin))
-
-             if (partType == 3) {
-               partiVals.foreach(pv => {
-                 val partMinInt = Utils.countMinutes(LocalTime.parse(pv.toString.replace("m", "")))
-                 if (partMinInt <= userMinInt) typeFlag = true
-               })
-             } else if (partType == 2) {
-               val partMinInt0 = Utils.countMinutes(LocalTime.parse(partiVals(0).toString.replace("m", "")))
-               val partMinInt1 = Utils.countMinutes(LocalTime.parse(partiVals(1).toString.replace("m", "")))
-               if ((partMinInt0 <= userMinInt || partMinInt1 <= userMinInt)) typeFlag = true
-             } else {
-               val partMinInt = Utils.countMinutes(LocalTime.parse(partiVals(0).toString.replace("m", "")))
-               if(partMinInt <= userMinInt) typeFlag = true
-             }
-
-             if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
-               flagPart = true
-             }
-           }
-           case GreaterThanOrEqual(attr, value) => {
-             var typeFlag = false
-             var userMin : String = null
-             if (value.toString.contains(" ") || value.toString.contains("T")) { userMin = value.toString.split("[ T]")(1) }
-             else userMin = value.toString
-             val userMinInt = Utils.countMinutes(LocalTime.parse(userMin))
-
-             if (partType == 3) {
-               partiVals.foreach(pv => {
-                 val partMinInt = Utils.countMinutes(LocalTime.parse(pv.toString.replace("m", "")))
-                 if (partMinInt >= userMinInt) typeFlag = true
-               })
-             } else if (partType == 2) {
-               val partMinInt0 = Utils.countMinutes(LocalTime.parse(partiVals(0).toString.replace("m", "")))
-               val partMinInt1 = Utils.countMinutes(LocalTime.parse(partiVals(1).toString.replace("m", "")))
-               if ((partMinInt0 >= userMinInt || partMinInt1 >= userMinInt)) typeFlag = true
-             } else {
-               val partMinInt = Utils.countMinutes(LocalTime.parse(partiVals(0).toString.replace("m", "")))
-               if(partMinInt >= userMinInt) typeFlag = true
-             }
-
-             if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
-               flagPart = true
-             }
-           }
-           case In(attr, value) => {
-             var vin = false
-             value.foreach(v => {
+             if (attr.equalsIgnoreCase(partCol)) {
                var typeFlag = false
-               var userMin : String = null
-               if (v.toString.contains(" ") || v.toString.contains("T")) { userMin = v.toString.split("[ T]")(1) }
-               else userMin = v.toString
+               var userMin: String = null
+               if (value.toString.contains(" ") || value.toString.contains("T")) {
+                 userMin = value.toString.split("[ T]")(1)
+               }
+               else userMin = value.toString
                val userMinInt = Utils.countMinutes(LocalTime.parse(userMin))
 
-               if (partType == 3) {
+               if (partiType == 3) {
                  partiVals.foreach(pv => {
                    val partMinInt = Utils.countMinutes(LocalTime.parse(pv.toString.replace("m", "")))
                    if (partMinInt == userMinInt) typeFlag = true
                  })
-               } else if (partType == 2) {
+               } else if (partiType == 2) {
                  val partMinInt0 = Utils.countMinutes(LocalTime.parse(partiVals(0).toString.replace("m", "")))
                  val partMinInt1 = Utils.countMinutes(LocalTime.parse(partiVals(1).toString.replace("m", "")))
                  if (partMinInt0 == partMinInt1 && partMinInt0 == userMinInt) typeFlag = true
@@ -1353,11 +1320,160 @@ case class DolphinDBPartitioner(option: DolphinDBOptions) extends Serializable {
                    partMinInt1 <= userMinInt && userMinInt < partMinInt0) typeFlag = true
                } else {
                  val partMinInt = Utils.countMinutes(LocalTime.parse(partiVals(0).toString.replace("m", "")))
-                 if(partMinInt == userMinInt) typeFlag = true
+                 if (partMinInt == userMinInt) typeFlag = true
                }
-             })
-             if (attr.equalsIgnoreCase(partCol) && vin) {
-               flagPart = true
+
+               if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
+                 flagPart = true
+               }
+             }
+           }
+           case LessThan(attr, value) => {
+             if (attr.equalsIgnoreCase(partCol)) {
+               var typeFlag = false
+               var userMin: String = null
+               if (value.toString.contains(" ") || value.toString.contains("T")) {
+                 userMin = value.toString.split("[ T]")(1)
+               }
+               else userMin = value.toString
+               val userMinInt = Utils.countMinutes(LocalTime.parse(userMin))
+
+               if (partiType == 3) {
+                 partiVals.foreach(pv => {
+                   val partMinInt = Utils.countMinutes(LocalTime.parse(pv.toString.replace("m", "")))
+                   if (partMinInt < userMinInt) typeFlag = true
+                 })
+               } else if (partiType == 2) {
+                 val partMinInt0 = Utils.countMinutes(LocalTime.parse(partiVals(0).toString.replace("m", "")))
+                 val partMinInt1 = Utils.countMinutes(LocalTime.parse(partiVals(1).toString.replace("m", "")))
+                 if ((partMinInt0 < userMinInt || partMinInt1 < userMinInt)) typeFlag = true
+               } else {
+                 val partMinInt = Utils.countMinutes(LocalTime.parse(partiVals(0).toString.replace("m", "")))
+                 if (partMinInt < userMinInt) typeFlag = true
+               }
+
+               if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
+                 flagPart = true
+               }
+             }
+           }
+           case GreaterThan(attr, value) => {
+             if (attr.equalsIgnoreCase(partCol)) {
+               var typeFlag = false
+               var userMin: String = null
+               if (value.toString.contains(" ") || value.toString.contains("T")) {
+                 userMin = value.toString.split("[ T]")(1)
+               }
+               else userMin = value.toString
+               val userMinInt = Utils.countMinutes(LocalTime.parse(userMin))
+
+               if (partiType == 3) {
+                 partiVals.foreach(pv => {
+                   val partMinInt = Utils.countMinutes(LocalTime.parse(pv.toString.replace("m", "")))
+                   if (partMinInt > userMinInt) typeFlag = true
+                 })
+               } else if (partiType == 2) {
+                 val partMinInt0 = Utils.countMinutes(LocalTime.parse(partiVals(0).toString.replace("m", "")))
+                 val partMinInt1 = Utils.countMinutes(LocalTime.parse(partiVals(1).toString.replace("m", "")))
+                 if ((partMinInt0 > userMinInt || partMinInt1 > userMinInt)) typeFlag = true
+               } else {
+                 val partMinInt = Utils.countMinutes(LocalTime.parse(partiVals(0).toString.replace("m", "")))
+                 if (partMinInt > userMinInt) typeFlag = true
+               }
+
+               if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
+                 flagPart = true
+               }
+             }
+           }
+           case LessThanOrEqual(attr, value) => {
+             if (attr.equalsIgnoreCase(partCol)) {
+               var typeFlag = false
+               var userMin: String = null
+               if (value.toString.contains(" ") || value.toString.contains("T")) {
+                 userMin = value.toString.split("[ T]")(1)
+               }
+               else userMin = value.toString
+               val userMinInt = Utils.countMinutes(LocalTime.parse(userMin))
+
+               if (partiType == 3) {
+                 partiVals.foreach(pv => {
+                   val partMinInt = Utils.countMinutes(LocalTime.parse(pv.toString.replace("m", "")))
+                   if (partMinInt <= userMinInt) typeFlag = true
+                 })
+               } else if (partiType == 2) {
+                 val partMinInt0 = Utils.countMinutes(LocalTime.parse(partiVals(0).toString.replace("m", "")))
+                 val partMinInt1 = Utils.countMinutes(LocalTime.parse(partiVals(1).toString.replace("m", "")))
+                 if ((partMinInt0 <= userMinInt || partMinInt1 <= userMinInt)) typeFlag = true
+               } else {
+                 val partMinInt = Utils.countMinutes(LocalTime.parse(partiVals(0).toString.replace("m", "")))
+                 if (partMinInt <= userMinInt) typeFlag = true
+               }
+
+               if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
+                 flagPart = true
+               }
+             }
+           }
+           case GreaterThanOrEqual(attr, value) => {
+             if (attr.equalsIgnoreCase(partCol)) {
+               var typeFlag = false
+               var userMin: String = null
+               if (value.toString.contains(" ") || value.toString.contains("T")) {
+                 userMin = value.toString.split("[ T]")(1)
+               }
+               else userMin = value.toString
+               val userMinInt = Utils.countMinutes(LocalTime.parse(userMin))
+
+               if (partiType == 3) {
+                 partiVals.foreach(pv => {
+                   val partMinInt = Utils.countMinutes(LocalTime.parse(pv.toString.replace("m", "")))
+                   if (partMinInt >= userMinInt) typeFlag = true
+                 })
+               } else if (partiType == 2) {
+                 val partMinInt0 = Utils.countMinutes(LocalTime.parse(partiVals(0).toString.replace("m", "")))
+                 val partMinInt1 = Utils.countMinutes(LocalTime.parse(partiVals(1).toString.replace("m", "")))
+                 if ((partMinInt0 >= userMinInt || partMinInt1 >= userMinInt)) typeFlag = true
+               } else {
+                 val partMinInt = Utils.countMinutes(LocalTime.parse(partiVals(0).toString.replace("m", "")))
+                 if (partMinInt >= userMinInt) typeFlag = true
+               }
+
+               if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
+                 flagPart = true
+               }
+             }
+           }
+           case In(attr, value) => {
+             if (attr.equalsIgnoreCase(partCol)) {
+               var typeFlag = false
+               value.foreach(v => {
+                 var userMin: String = null
+                 if (v.toString.contains(" ") || v.toString.contains("T")) {
+                   userMin = v.toString.split("[ T]")(1)
+                 }
+                 else userMin = v.toString
+                 val userMinInt = Utils.countMinutes(LocalTime.parse(userMin))
+
+                 if (partiType == 3) {
+                   partiVals.foreach(pv => {
+                     val partMinInt = Utils.countMinutes(LocalTime.parse(pv.toString.replace("m", "")))
+                     if (partMinInt == userMinInt) typeFlag = true
+                   })
+                 } else if (partiType == 2) {
+                   val partMinInt0 = Utils.countMinutes(LocalTime.parse(partiVals(0).toString.replace("m", "")))
+                   val partMinInt1 = Utils.countMinutes(LocalTime.parse(partiVals(1).toString.replace("m", "")))
+                   if (partMinInt0 == partMinInt1 && partMinInt0 == userMinInt) typeFlag = true
+                   else if ((partMinInt0 <= userMinInt && userMinInt < partMinInt1) ||
+                     partMinInt1 <= userMinInt && userMinInt < partMinInt0) typeFlag = true
+                 } else {
+                   val partMinInt = Utils.countMinutes(LocalTime.parse(partiVals(0).toString.replace("m", "")))
+                   if (partMinInt == userMinInt) typeFlag = true
+                 }
+               })
+               if (attr.equalsIgnoreCase(partCol) && typeFlag) {
+                 flagPart = true
+               }
              }
            }
            case Not(f) => {
@@ -1379,156 +1495,179 @@ case class DolphinDBPartitioner(option: DolphinDBOptions) extends Serializable {
            }
            case _ =>
          })
-       } else if (partType.equals("SECOND")) {
-//         val partSecInt = Utils.countSeconds(LocalTime.parse(partiVal))
+       } else if (colType.equals("SECOND")) {
          partFilter.foreach(f => f match {
            case EqualTo(attr, value) => {
-             var userSec : String = null
-             var typeFlag = false
-             if (value.toString.contains(" ") || value.toString.contains("T")) { userSec = value.toString.split("[ T]")(1) }
-             else userSec = value.toString
-             val userSecInt = Utils.countSeconds(LocalTime.parse(userSec))
-
-             if (partType == 3) {
-               partiVals.foreach(pv => {
-                 val partSecInt = Utils.countSeconds(LocalTime.parse(pv))
-                 if (partSecInt == userSecInt) typeFlag = true
-               })
-             } else if (partType == 2) {
-               val partSecInt0 = Utils.countSeconds(LocalTime.parse(partiVals(0) ))
-               val partSecInt1 = Utils.countSeconds(LocalTime.parse(partiVals(1) ))
-               if (partSecInt0 == partSecInt1 && partSecInt0 == userSecInt) typeFlag = true
-               else if ((partSecInt0 <= userSecInt && userSecInt < partSecInt1) ||
-                 partSecInt1 <= userSecInt && userSecInt < partSecInt0) typeFlag = true
-             } else {
-               val partSecInt = Utils.countSeconds(LocalTime.parse(partiVals(0) ))
-               if(partSecInt == userSecInt) typeFlag = true
-             }
-             if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
-               flagPart = true
-             }
-           }
-           case LessThan(attr, value) => {
-             var typeFlag = false
-             var userSec : String = null
-             if (value.toString.contains(" ") || value.toString.contains("T")) { userSec = value.toString.split("[ T]")(1) }
-             else userSec = value.toString
-             val userSecInt = Utils.countSeconds(LocalTime.parse(userSec))
-
-             if (partType == 3) {
-               partiVals.foreach(pv => {
-                 val partSecInt = Utils.countSeconds(LocalTime.parse(pv))
-                 if (partSecInt < userSecInt) typeFlag = true
-               })
-             } else if (partType == 2) {
-               val partSecInt0 = Utils.countSeconds(LocalTime.parse(partiVals(0) ))
-               val partSecInt1 = Utils.countSeconds(LocalTime.parse(partiVals(1) ))
-               if ((partSecInt0 < userSecInt && partSecInt1 < userSecInt) ) typeFlag = true
-             } else {
-               val partSecInt = Utils.countSeconds(LocalTime.parse(partiVals(0) ))
-               if(partSecInt < userSecInt) typeFlag = true
-             }
-             if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
-               flagPart = true
-             }
-           }
-           case GreaterThan(attr, value) => {
-             var typeFlag = false
-             var userSec : String = null
-             if (value.toString.contains(" ") || value.toString.contains("T")) { userSec = value.toString.split("[ T]")(1) }
-             else userSec = value.toString
-             val userSecInt = Utils.countSeconds(LocalTime.parse(userSec))
-             if (partType == 3) {
-               partiVals.foreach(pv => {
-                 val partSecInt = Utils.countSeconds(LocalTime.parse(pv))
-                 if (partSecInt > userSecInt) typeFlag = true
-               })
-             } else if (partType == 2) {
-               val partSecInt0 = Utils.countSeconds(LocalTime.parse(partiVals(0) ))
-               val partSecInt1 = Utils.countSeconds(LocalTime.parse(partiVals(1) ))
-               if ((partSecInt0 > userSecInt && partSecInt1 > userSecInt) ) typeFlag = true
-             } else {
-               val partSecInt = Utils.countSeconds(LocalTime.parse(partiVals(0) ))
-               if(partSecInt > userSecInt) typeFlag = true
-             }
-             if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
-               flagPart = true
-             }
-           }
-           case LessThanOrEqual(attr, value) => {
-             var typeFlag = false
-             var userSec : String = null
-             if (value.toString.contains(" ") || value.toString.contains("T")) { userSec = value.toString.split("[ T]")(1) }
-             else userSec = value.toString
-             val userSecInt = Utils.countSeconds(LocalTime.parse(userSec))
-             if (partType == 3) {
-               partiVals.foreach(pv => {
-                 val partSecInt = Utils.countSeconds(LocalTime.parse(pv))
-                 if (partSecInt <= userSecInt) typeFlag = true
-               })
-             } else if (partType == 2) {
-               val partSecInt0 = Utils.countSeconds(LocalTime.parse(partiVals(0) ))
-               val partSecInt1 = Utils.countSeconds(LocalTime.parse(partiVals(1) ))
-               if ((partSecInt0 <= userSecInt && partSecInt1 <= userSecInt) ) typeFlag = true
-             } else {
-               val partSecInt = Utils.countSeconds(LocalTime.parse(partiVals(0) ))
-               if(partSecInt <= userSecInt) typeFlag = true
-             }
-             if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
-               flagPart = true
-             }
-           }
-           case GreaterThanOrEqual(attr, value) => {
-             var typeFlag = false
-             var userSec : String = null
-             if (value.toString.contains(" ") || value.toString.contains("T")) { userSec = value.toString.split("[ T]")(1) }
-             else userSec = value.toString
-             val userSecInt = Utils.countSeconds(LocalTime.parse(userSec))
-
-             if (partType == 3) {
-               partiVals.foreach(pv => {
-                 val partSecInt = Utils.countSeconds(LocalTime.parse(pv))
-                 if (partSecInt >= userSecInt) typeFlag = true
-               })
-             } else if (partType == 2) {
-               val partSecInt0 = Utils.countSeconds(LocalTime.parse(partiVals(0) ))
-               val partSecInt1 = Utils.countSeconds(LocalTime.parse(partiVals(1) ))
-               if ((partSecInt0 >= userSecInt && partSecInt1 >= userSecInt) ) typeFlag = true
-             } else {
-               val partSecInt = Utils.countSeconds(LocalTime.parse(partiVals(0) ))
-               if(partSecInt >= userSecInt) typeFlag = true
-             }
-
-             if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
-               flagPart = true
-             }
-           }
-           case In(attr, value) => {
-             var typeFlag = false
-             value.foreach(v => {
-               var userSec : String = null
-               if (v.toString.contains(" ") || v.toString.contains("T")) { userSec = v.toString.split("[ T]")(1) }
-               else userSec = v.toString
+             if (attr.equalsIgnoreCase(partCol)) {
+               var userSec: String = null
+               var typeFlag = false
+               if (value.toString.contains(" ") || value.toString.contains("T")) {
+                 userSec = value.toString.split("[ T]")(1)
+               }
+               else userSec = value.toString
                val userSecInt = Utils.countSeconds(LocalTime.parse(userSec))
 
-               if (partType == 3) {
+               if (partiType == 3) {
                  partiVals.foreach(pv => {
                    val partSecInt = Utils.countSeconds(LocalTime.parse(pv))
                    if (partSecInt == userSecInt) typeFlag = true
                  })
-               } else if (partType == 2) {
-                 val partSecInt0 = Utils.countSeconds(LocalTime.parse(partiVals(0) ))
-                 val partSecInt1 = Utils.countSeconds(LocalTime.parse(partiVals(1) ))
+               } else if (partiType == 2) {
+                 val partSecInt0 = Utils.countSeconds(LocalTime.parse(partiVals(0)))
+                 val partSecInt1 = Utils.countSeconds(LocalTime.parse(partiVals(1)))
                  if (partSecInt0 == partSecInt1 && partSecInt0 == userSecInt) typeFlag = true
                  else if ((partSecInt0 <= userSecInt && userSecInt < partSecInt1) ||
                    partSecInt1 <= userSecInt && userSecInt < partSecInt0) typeFlag = true
                } else {
-                 val partSecInt = Utils.countSeconds(LocalTime.parse(partiVals(0) ))
-                 if(partSecInt == userSecInt) typeFlag = true
+                 val partSecInt = Utils.countSeconds(LocalTime.parse(partiVals(0)))
+                 if (partSecInt == userSecInt) typeFlag = true
                }
-             })
-             if (attr.equalsIgnoreCase(partCol) && typeFlag) {
-               flagPart = true
+               if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
+                 flagPart = true
+               }
+             }
+           }
+           case LessThan(attr, value) => {
+             if (attr.equalsIgnoreCase(partCol)) {
+               var typeFlag = false
+               var userSec: String = null
+               if (value.toString.contains(" ") || value.toString.contains("T")) {
+                 userSec = value.toString.split("[ T]")(1)
+               }
+               else userSec = value.toString
+               val userSecInt = Utils.countSeconds(LocalTime.parse(userSec))
+
+               if (partiType == 3) {
+                 partiVals.foreach(pv => {
+                   val partSecInt = Utils.countSeconds(LocalTime.parse(pv))
+                   if (partSecInt < userSecInt) typeFlag = true
+                 })
+               } else if (partiType == 2) {
+                 val partSecInt0 = Utils.countSeconds(LocalTime.parse(partiVals(0)))
+                 val partSecInt1 = Utils.countSeconds(LocalTime.parse(partiVals(1)))
+                 if ((partSecInt0 < userSecInt && partSecInt1 < userSecInt)) typeFlag = true
+               } else {
+                 val partSecInt = Utils.countSeconds(LocalTime.parse(partiVals(0)))
+                 if (partSecInt < userSecInt) typeFlag = true
+               }
+               if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
+                 flagPart = true
+               }
+             }
+           }
+           case GreaterThan(attr, value) => {
+             if (attr.equalsIgnoreCase(partCol)) {
+               var typeFlag = false
+               var userSec: String = null
+               if (value.toString.contains(" ") || value.toString.contains("T")) {
+                 userSec = value.toString.split("[ T]")(1)
+               }
+               else userSec = value.toString
+               val userSecInt = Utils.countSeconds(LocalTime.parse(userSec))
+               if (partiType == 3) {
+                 partiVals.foreach(pv => {
+                   val partSecInt = Utils.countSeconds(LocalTime.parse(pv))
+                   if (partSecInt > userSecInt) typeFlag = true
+                 })
+               } else if (partiType == 2) {
+                 val partSecInt0 = Utils.countSeconds(LocalTime.parse(partiVals(0)))
+                 val partSecInt1 = Utils.countSeconds(LocalTime.parse(partiVals(1)))
+                 if ((partSecInt0 > userSecInt && partSecInt1 > userSecInt)) typeFlag = true
+               } else {
+                 val partSecInt = Utils.countSeconds(LocalTime.parse(partiVals(0)))
+                 if (partSecInt > userSecInt) typeFlag = true
+               }
+               if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
+                 flagPart = true
+               }
+             }
+           }
+           case LessThanOrEqual(attr, value) => {
+             if (attr.equalsIgnoreCase(partCol)) {
+               var typeFlag = false
+               var userSec: String = null
+               if (value.toString.contains(" ") || value.toString.contains("T")) {
+                 userSec = value.toString.split("[ T]")(1)
+               }
+               else userSec = value.toString
+               val userSecInt = Utils.countSeconds(LocalTime.parse(userSec))
+               if (partiType == 3) {
+                 partiVals.foreach(pv => {
+                   val partSecInt = Utils.countSeconds(LocalTime.parse(pv))
+                   if (partSecInt <= userSecInt) typeFlag = true
+                 })
+               } else if (partiType == 2) {
+                 val partSecInt0 = Utils.countSeconds(LocalTime.parse(partiVals(0)))
+                 val partSecInt1 = Utils.countSeconds(LocalTime.parse(partiVals(1)))
+                 if ((partSecInt0 <= userSecInt && partSecInt1 <= userSecInt)) typeFlag = true
+               } else {
+                 val partSecInt = Utils.countSeconds(LocalTime.parse(partiVals(0)))
+                 if (partSecInt <= userSecInt) typeFlag = true
+               }
+               if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
+                 flagPart = true
+               }
+             }
+           }
+           case GreaterThanOrEqual(attr, value) => {
+             if (attr.equalsIgnoreCase(partCol)) {
+               var typeFlag = false
+               var userSec: String = null
+               if (value.toString.contains(" ") || value.toString.contains("T")) {
+                 userSec = value.toString.split("[ T]")(1)
+               }
+               else userSec = value.toString
+               val userSecInt = Utils.countSeconds(LocalTime.parse(userSec))
+
+               if (partiType == 3) {
+                 partiVals.foreach(pv => {
+                   val partSecInt = Utils.countSeconds(LocalTime.parse(pv))
+                   if (partSecInt >= userSecInt) typeFlag = true
+                 })
+               } else if (partiType == 2) {
+                 val partSecInt0 = Utils.countSeconds(LocalTime.parse(partiVals(0)))
+                 val partSecInt1 = Utils.countSeconds(LocalTime.parse(partiVals(1)))
+                 if ((partSecInt0 >= userSecInt && partSecInt1 >= userSecInt)) typeFlag = true
+               } else {
+                 val partSecInt = Utils.countSeconds(LocalTime.parse(partiVals(0)))
+                 if (partSecInt >= userSecInt) typeFlag = true
+               }
+
+               if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
+                 flagPart = true
+               }
+             }
+           }
+           case In(attr, value) => {
+             if (attr.equalsIgnoreCase(partCol)) {
+               var typeFlag = false
+               value.foreach(v => {
+                 var userSec: String = null
+                 if (v.toString.contains(" ") || v.toString.contains("T")) {
+                   userSec = v.toString.split("[ T]")(1)
+                 }
+                 else userSec = v.toString
+                 val userSecInt = Utils.countSeconds(LocalTime.parse(userSec))
+
+                 if (partiType == 3) {
+                   partiVals.foreach(pv => {
+                     val partSecInt = Utils.countSeconds(LocalTime.parse(pv))
+                     if (partSecInt == userSecInt) typeFlag = true
+                   })
+                 } else if (partiType == 2) {
+                   val partSecInt0 = Utils.countSeconds(LocalTime.parse(partiVals(0)))
+                   val partSecInt1 = Utils.countSeconds(LocalTime.parse(partiVals(1)))
+                   if (partSecInt0 == partSecInt1 && partSecInt0 == userSecInt) typeFlag = true
+                   else if ((partSecInt0 <= userSecInt && userSecInt < partSecInt1) ||
+                     partSecInt1 <= userSecInt && userSecInt < partSecInt0) typeFlag = true
+                 } else {
+                   val partSecInt = Utils.countSeconds(LocalTime.parse(partiVals(0)))
+                   if (partSecInt == userSecInt) typeFlag = true
+                 }
+               })
+               if (attr.equalsIgnoreCase(partCol) && typeFlag) {
+                 flagPart = true
+               }
              }
            }
            case Not(f) => {
@@ -1550,164 +1689,25 @@ case class DolphinDBPartitioner(option: DolphinDBOptions) extends Serializable {
            }
            case _ =>
          })
-       } else if (partType.equals("DATETIME")) {
+       } else if (colType.equals("DATETIME")) {
          partFilter.foreach(f => f match {
            case EqualTo(attr, value) => {
-             var typeFlag = false
-             var userDT : String = null
-             if (value.toString.contains(" ")) { userDT = value.toString.replace(" ", "T") }
-             else userDT = value.toString
-             val userDTInt = Utils.countSeconds(LocalDateTime.parse(userDT))
-
-             if (partType == 3) {
-               partiVals.foreach(pv => {
-                 val partDTInt = Utils.countSeconds(LocalDateTime.parse(pv.split("[ T]")(0).replace(".", "-") +
-                                      "T" + pv.split("[ T]")(1)))
-                 if (partDTInt == userDTInt) typeFlag = true
-               })
-             } else if (partType == 2) {
-               val partDTInt0 = Utils.countSeconds(LocalDateTime.parse(partiVals(0).split("[ T]")(0).replace(".", "-") +
-                                      "T" + partiVals(0).split("[ T]")(1)))
-               val partDTInt1 = Utils.countSeconds(LocalDateTime.parse(partiVals(1).split("[ T]")(0).replace(".", "-") +
-                                     "T" + partiVals(1).split("[ T]")(1)))
-               if (partDTInt0 == partDTInt1 && partDTInt0 == userDTInt) typeFlag = true
-               else if ((partDTInt0 <= userDTInt && userDTInt < partDTInt1) ||
-                 partDTInt1 <= userDTInt && userDTInt < partDTInt0) typeFlag = true
-             } else {
-               val partDTInt = Utils.countSeconds(LocalDateTime.parse(partiVals(0).split("[ T]")(0).replace(".", "-") +
-                                      "T" + partiVals(0).split("[ T]")(1)))
-               if(partDTInt == userDTInt) typeFlag = true
-             }
-             if ((attr.equalsIgnoreCase(partCol) && typeFlag )) {
-               flagPart = true
-             }
-           }
-           case LessThan(attr, value) => {
-             var typeFlag = false
-             var userDT : String = null
-             if (value.toString.contains(" ")) { userDT = value.toString.replace(" ", "T") }
-             else userDT = value.toString
-             val userDTInt = Utils.countSeconds(LocalDateTime.parse(userDT))
-
-             if (partType == 3) {
-               partiVals.foreach(pv => {
-                 val partDTInt = Utils.countSeconds(LocalDateTime.parse(pv.split("[ T]")(0).replace(".", "-") +
-                   "T" + pv.split("[ T]")(1)))
-                 if (partDTInt < userDTInt) typeFlag = true
-               })
-             } else if (partType == 2) {
-               val partDTInt0 = Utils.countSeconds(LocalDateTime.parse(partiVals(0).split("[ T]")(0).replace(".", "-") +
-                 "T" + partiVals(0).split("[ T]")(1)))
-               val partDTInt1 = Utils.countSeconds(LocalDateTime.parse(partiVals(1).split("[ T]")(0).replace(".", "-") +
-                 "T" + partiVals(1).split("[ T]")(1)))
-               if ((partDTInt0 < userDTInt || partDTInt1 < userDTInt) ) typeFlag = true
-             } else {
-               val partDTInt = Utils.countSeconds(LocalDateTime.parse(partiVals(0).split("[ T]")(0).replace(".", "-") +
-                 "T" + partiVals(0).split("[ T]")(1)))
-               if(partDTInt < userDTInt) typeFlag = true
-             }
-             if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
-               flagPart = true
-             }
-           }
-           case GreaterThan(attr, value) => {
-             var typeFlag = false
-             var userDT : String = null
-             if (value.toString.contains(" ")) { userDT = value.toString.replace(" ", "T") }
-             else userDT = value.toString
-             val userDTInt = Utils.countSeconds(LocalDateTime.parse(userDT))
-
-             if (partType == 3) {
-               partiVals.foreach(pv => {
-                 val partDTInt = Utils.countSeconds(LocalDateTime.parse(pv.split("[ T]")(0).replace(".", "-") +
-                   "T" + pv.split("[ T]")(1)))
-                 if (partDTInt > userDTInt) typeFlag = true
-               })
-             } else if (partType == 2) {
-               val partDTInt0 = Utils.countSeconds(LocalDateTime.parse(partiVals(0).split("[ T]")(0).replace(".", "-") +
-                 "T" + partiVals(0).split("[ T]")(1)))
-               val partDTInt1 = Utils.countSeconds(LocalDateTime.parse(partiVals(1).split("[ T]")(0).replace(".", "-") +
-                 "T" + partiVals(1).split("[ T]")(1)))
-               if ((partDTInt0 > userDTInt || partDTInt1 > userDTInt) ) typeFlag = true
-             } else {
-               val partDTInt = Utils.countSeconds(LocalDateTime.parse(partiVals(0).split("[ T]")(0).replace(".", "-") +
-                 "T" + partiVals(0).split("[ T]")(1)))
-               if(partDTInt > userDTInt) typeFlag = true
-             }
-             if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
-               flagPart = true
-             }
-           }
-           case LessThanOrEqual(attr, value) => {
-             var typeFlag = false
-             var userDT : String = null
-             if (value.toString.contains(" ")) { userDT = value.toString.replace(" ", "T") }
-             else userDT = value.toString
-             val userDTInt = Utils.countSeconds(LocalDateTime.parse(userDT))
-
-             if (partType == 3) {
-               partiVals.foreach(pv => {
-                 val partDTInt = Utils.countSeconds(LocalDateTime.parse(pv.split("[ T]")(0).replace(".", "-") +
-                   "T" + pv.split("[ T]")(1)))
-                 if (partDTInt <= userDTInt) typeFlag = true
-               })
-             } else if (partType == 2) {
-               val partDTInt0 = Utils.countSeconds(LocalDateTime.parse(partiVals(0).split("[ T]")(0).replace(".", "-") +
-                 "T" + partiVals(0).split("[ T]")(1)))
-               val partDTInt1 = Utils.countSeconds(LocalDateTime.parse(partiVals(1).split("[ T]")(0).replace(".", "-") +
-                 "T" + partiVals(1).split("[ T]")(1)))
-               if ((partDTInt0 <= userDTInt || partDTInt1 <= userDTInt) ) typeFlag = true
-             } else {
-               val partDTInt = Utils.countSeconds(LocalDateTime.parse(partiVals(0).split("[ T]")(0).replace(".", "-") +
-                 "T" + partiVals(0).split("[ T]")(1)))
-               if(partDTInt <= userDTInt) typeFlag = true
-             }
-             if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
-               flagPart = true
-             }
-           }
-           case GreaterThanOrEqual(attr, value) => {
-             var typeFlag = false
-             var userDT : String = null
-             if (value.toString.contains(" ")) { userDT = value.toString.replace(" ", "T") }
-             else userDT = value.toString
-             val userDTInt = Utils.countSeconds(LocalDateTime.parse(userDT))
-
-             if (partType == 3) {
-               partiVals.foreach(pv => {
-                 val partDTInt = Utils.countSeconds(LocalDateTime.parse(pv.split("[ T]")(0).replace(".", "-") +
-                   "T" + pv.split("[ T]")(1)))
-                 if (partDTInt >= userDTInt) typeFlag = true
-               })
-             } else if (partType == 2) {
-               val partDTInt0 = Utils.countSeconds(LocalDateTime.parse(partiVals(0).split("[ T]")(0).replace(".", "-") +
-                 "T" + partiVals(0).split("[ T]")(1)))
-               val partDTInt1 = Utils.countSeconds(LocalDateTime.parse(partiVals(1).split("[ T]")(0).replace(".", "-") +
-                 "T" + partiVals(1).split("[ T]")(1)))
-               if ((partDTInt0 >= userDTInt || partDTInt1 >= userDTInt) ) typeFlag = true
-             } else {
-               val partDTInt = Utils.countSeconds(LocalDateTime.parse(partiVals(0).split("[ T]")(0).replace(".", "-") +
-                 "T" + partiVals(0).split("[ T]")(1)))
-               if(partDTInt >= userDTInt) typeFlag = true
-             }
-             if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
-               flagPart = true
-             }
-           }
-           case In(attr, value) => {
-             var typeFlag = false
-             value.foreach(v => {
-               var userDT : String = null
-               if (v.toString.contains(" ")) { userDT = v.toString.replace(" ", "T") }
-               else userDT = v.toString
+             if (attr.equalsIgnoreCase(partCol)) {
+               var typeFlag = false
+               var userDT: String = null
+               if (value.toString.contains(" ")) {
+                 userDT = value.toString.replace(" ", "T")
+               }
+               else userDT = value.toString
                val userDTInt = Utils.countSeconds(LocalDateTime.parse(userDT))
-               if (partType == 3) {
+
+               if (partiType == 3) {
                  partiVals.foreach(pv => {
                    val partDTInt = Utils.countSeconds(LocalDateTime.parse(pv.split("[ T]")(0).replace(".", "-") +
                      "T" + pv.split("[ T]")(1)))
                    if (partDTInt == userDTInt) typeFlag = true
                  })
-               } else if (partType == 2) {
+               } else if (partiType == 2) {
                  val partDTInt0 = Utils.countSeconds(LocalDateTime.parse(partiVals(0).split("[ T]")(0).replace(".", "-") +
                    "T" + partiVals(0).split("[ T]")(1)))
                  val partDTInt1 = Utils.countSeconds(LocalDateTime.parse(partiVals(1).split("[ T]")(0).replace(".", "-") +
@@ -1718,11 +1718,174 @@ case class DolphinDBPartitioner(option: DolphinDBOptions) extends Serializable {
                } else {
                  val partDTInt = Utils.countSeconds(LocalDateTime.parse(partiVals(0).split("[ T]")(0).replace(".", "-") +
                    "T" + partiVals(0).split("[ T]")(1)))
-                 if(partDTInt == userDTInt) typeFlag = true
+                 if (partDTInt == userDTInt) typeFlag = true
                }
-             })
-             if (attr.equalsIgnoreCase(partCol) && typeFlag) {
-               flagPart = true
+               if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
+                 flagPart = true
+               }
+             }
+           }
+           case LessThan(attr, value) => {
+             if (attr.equalsIgnoreCase(partCol)) {
+               var typeFlag = false
+               var userDT: String = null
+               if (value.toString.contains(" ")) {
+                 userDT = value.toString.replace(" ", "T")
+               }
+               else userDT = value.toString
+               val userDTInt = Utils.countSeconds(LocalDateTime.parse(userDT))
+
+               if (partiType == 3) {
+                 partiVals.foreach(pv => {
+                   val partDTInt = Utils.countSeconds(LocalDateTime.parse(pv.split("[ T]")(0).replace(".", "-") +
+                     "T" + pv.split("[ T]")(1)))
+                   if (partDTInt < userDTInt) typeFlag = true
+                 })
+               } else if (partiType == 2) {
+                 val partDTInt0 = Utils.countSeconds(LocalDateTime.parse(partiVals(0).split("[ T]")(0).replace(".", "-") +
+                   "T" + partiVals(0).split("[ T]")(1)))
+                 val partDTInt1 = Utils.countSeconds(LocalDateTime.parse(partiVals(1).split("[ T]")(0).replace(".", "-") +
+                   "T" + partiVals(1).split("[ T]")(1)))
+                 if ((partDTInt0 < userDTInt || partDTInt1 < userDTInt)) typeFlag = true
+               } else {
+                 val partDTInt = Utils.countSeconds(LocalDateTime.parse(partiVals(0).split("[ T]")(0).replace(".", "-") +
+                   "T" + partiVals(0).split("[ T]")(1)))
+                 if (partDTInt < userDTInt) typeFlag = true
+               }
+               if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
+                 flagPart = true
+               }
+             }
+           }
+           case GreaterThan(attr, value) => {
+             if (attr.equalsIgnoreCase(partCol)) {
+               var typeFlag = false
+               var userDT: String = null
+               if (value.toString.contains(" ")) {
+                 userDT = value.toString.replace(" ", "T")
+               }
+               else userDT = value.toString
+               val userDTInt = Utils.countSeconds(LocalDateTime.parse(userDT))
+
+               if (partiType == 3) {
+                 partiVals.foreach(pv => {
+                   val partDTInt = Utils.countSeconds(LocalDateTime.parse(pv.split("[ T]")(0).replace(".", "-") +
+                     "T" + pv.split("[ T]")(1)))
+                   if (partDTInt > userDTInt) typeFlag = true
+                 })
+               } else if (partiType == 2) {
+                 val partDTInt0 = Utils.countSeconds(LocalDateTime.parse(partiVals(0).split("[ T]")(0).replace(".", "-") +
+                   "T" + partiVals(0).split("[ T]")(1)))
+                 val partDTInt1 = Utils.countSeconds(LocalDateTime.parse(partiVals(1).split("[ T]")(0).replace(".", "-") +
+                   "T" + partiVals(1).split("[ T]")(1)))
+                 if ((partDTInt0 > userDTInt || partDTInt1 > userDTInt)) typeFlag = true
+               } else {
+                 val partDTInt = Utils.countSeconds(LocalDateTime.parse(partiVals(0).split("[ T]")(0).replace(".", "-") +
+                   "T" + partiVals(0).split("[ T]")(1)))
+                 if (partDTInt > userDTInt) typeFlag = true
+               }
+               if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
+                 flagPart = true
+               }
+             }
+           }
+           case LessThanOrEqual(attr, value) => {
+             if (attr.equalsIgnoreCase(partCol)) {
+               var typeFlag = false
+               var userDT: String = null
+               if (value.toString.contains(" ")) {
+                 userDT = value.toString.replace(" ", "T")
+               }
+               else userDT = value.toString
+               val userDTInt = Utils.countSeconds(LocalDateTime.parse(userDT))
+
+               if (partiType == 3) {
+                 partiVals.foreach(pv => {
+                   val partDTInt = Utils.countSeconds(LocalDateTime.parse(pv.split("[ T]")(0).replace(".", "-") +
+                     "T" + pv.split("[ T]")(1)))
+                   if (partDTInt <= userDTInt) typeFlag = true
+                 })
+               } else if (partiType == 2) {
+                 val partDTInt0 = Utils.countSeconds(LocalDateTime.parse(partiVals(0).split("[ T]")(0).replace(".", "-") +
+                   "T" + partiVals(0).split("[ T]")(1)))
+                 val partDTInt1 = Utils.countSeconds(LocalDateTime.parse(partiVals(1).split("[ T]")(0).replace(".", "-") +
+                   "T" + partiVals(1).split("[ T]")(1)))
+                 if ((partDTInt0 <= userDTInt || partDTInt1 <= userDTInt)) typeFlag = true
+               } else {
+                 val partDTInt = Utils.countSeconds(LocalDateTime.parse(partiVals(0).split("[ T]")(0).replace(".", "-") +
+                   "T" + partiVals(0).split("[ T]")(1)))
+                 if (partDTInt <= userDTInt) typeFlag = true
+               }
+               if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
+                 flagPart = true
+               }
+             }
+           }
+           case GreaterThanOrEqual(attr, value) => {
+             if (attr.equalsIgnoreCase(partCol)) {
+               var typeFlag = false
+               var userDT: String = null
+               if (value.toString.contains(" ")) {
+                 userDT = value.toString.replace(" ", "T")
+               }
+               else userDT = value.toString
+               val userDTInt = Utils.countSeconds(LocalDateTime.parse(userDT))
+
+               if (partiType == 3) {
+                 partiVals.foreach(pv => {
+                   val partDTInt = Utils.countSeconds(LocalDateTime.parse(pv.split("[ T]")(0).replace(".", "-") +
+                     "T" + pv.split("[ T]")(1)))
+                   if (partDTInt >= userDTInt) typeFlag = true
+                 })
+               } else if (partiType == 2) {
+                 val partDTInt0 = Utils.countSeconds(LocalDateTime.parse(partiVals(0).split("[ T]")(0).replace(".", "-") +
+                   "T" + partiVals(0).split("[ T]")(1)))
+                 val partDTInt1 = Utils.countSeconds(LocalDateTime.parse(partiVals(1).split("[ T]")(0).replace(".", "-") +
+                   "T" + partiVals(1).split("[ T]")(1)))
+                 if ((partDTInt0 >= userDTInt || partDTInt1 >= userDTInt)) typeFlag = true
+               } else {
+                 val partDTInt = Utils.countSeconds(LocalDateTime.parse(partiVals(0).split("[ T]")(0).replace(".", "-") +
+                   "T" + partiVals(0).split("[ T]")(1)))
+                 if (partDTInt >= userDTInt) typeFlag = true
+               }
+               if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
+                 flagPart = true
+               }
+             }
+           }
+           case In(attr, value) => {
+             if (attr.equalsIgnoreCase(partCol)) {
+               var typeFlag = false
+               value.foreach(v => {
+                 var userDT: String = null
+                 if (v.toString.contains(" ")) {
+                   userDT = v.toString.replace(" ", "T")
+                 }
+                 else userDT = v.toString
+                 val userDTInt = Utils.countSeconds(LocalDateTime.parse(userDT))
+                 if (partiType == 3) {
+                   partiVals.foreach(pv => {
+                     val partDTInt = Utils.countSeconds(LocalDateTime.parse(pv.split("[ T]")(0).replace(".", "-") +
+                       "T" + pv.split("[ T]")(1)))
+                     if (partDTInt == userDTInt) typeFlag = true
+                   })
+                 } else if (partiType == 2) {
+                   val partDTInt0 = Utils.countSeconds(LocalDateTime.parse(partiVals(0).split("[ T]")(0).replace(".", "-") +
+                     "T" + partiVals(0).split("[ T]")(1)))
+                   val partDTInt1 = Utils.countSeconds(LocalDateTime.parse(partiVals(1).split("[ T]")(0).replace(".", "-") +
+                     "T" + partiVals(1).split("[ T]")(1)))
+                   if (partDTInt0 == partDTInt1 && partDTInt0 == userDTInt) typeFlag = true
+                   else if ((partDTInt0 <= userDTInt && userDTInt < partDTInt1) ||
+                     partDTInt1 <= userDTInt && userDTInt < partDTInt0) typeFlag = true
+                 } else {
+                   val partDTInt = Utils.countSeconds(LocalDateTime.parse(partiVals(0).split("[ T]")(0).replace(".", "-") +
+                     "T" + partiVals(0).split("[ T]")(1)))
+                   if (partDTInt == userDTInt) typeFlag = true
+                 }
+               })
+               if (attr.equalsIgnoreCase(partCol) && typeFlag) {
+                 flagPart = true
+               }
              }
            }
            case Not(f) => {
@@ -1744,168 +1907,25 @@ case class DolphinDBPartitioner(option: DolphinDBOptions) extends Serializable {
            }
            case _ =>
          })
-       } else if (partType.equals("TIMESTAMP")) {
+       } else if (colType.equals("TIMESTAMP")) {
          partFilter.foreach(f => f match {
            case EqualTo(attr, value) => {
-             var typeFlag = false
-             var userTM : String = null
-             if (value.toString.contains(" ")) { userTM = value.toString.replace(" ", "T") }
-             else userTM = value.toString
-             val userTMInt = Utils.countMilliseconds(LocalDateTime.parse(userTM))
-
-             if (partType == 3) {
-               partiVals.foreach(pv => {
-                 val partTMInt = Utils.countMilliseconds(LocalDateTime.parse(pv.split("[ T]")(0).replace(".", "-") +
-                   "T" + pv.split("[ T]")(1)))
-                 if (partTMInt == userTMInt) typeFlag = true
-               })
-             } else if (partType == 2) {
-               val partTMInt0 = Utils.countMilliseconds(LocalDateTime.parse(partiVals(0).split("[ T]")(0).replace(".", "-") +
-                 "T" + partiVals(0).split("[ T]")(1)))
-               val partTMInt1 = Utils.countMilliseconds(LocalDateTime.parse(partiVals(1).split("[ T]")(0).replace(".", "-") +
-                 "T" + partiVals(1).split("[ T]")(1)))
-               if (partTMInt0 == partTMInt1 && partTMInt0 == userTMInt) typeFlag = true
-               else if ((partTMInt0 <= userTMInt && userTMInt < partTMInt1) ||
-                 partTMInt1 <= userTMInt && userTMInt < partTMInt0) typeFlag = true
-             } else {
-               val partTMInt = Utils.countMilliseconds(LocalDateTime.parse(partiVals(0).split("[ T]")(0).replace(".", "-") +
-                 "T" + partiVals(0).split("[ T]")(1)))
-               if(partTMInt == userTMInt) typeFlag = true
-             }
-
-             if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
-               flagPart = true
-             }
-           }
-           case LessThan(attr, value) => {
-             var typeFlag = false
-             var userTM : String = null
-             if (value.toString.contains(" ")) { userTM = value.toString.replace(" ", "T") }
-             else userTM = value.toString
-             val userTMInt = Utils.countMilliseconds(LocalDateTime.parse(userTM))
-
-             if (partType == 3) {
-               partiVals.foreach(pv => {
-                 val partTMInt = Utils.countMilliseconds(LocalDateTime.parse(pv.split("[ T]")(0).replace(".", "-") +
-                   "T" + pv.split("[ T]")(1)))
-                 if (partTMInt < userTMInt) typeFlag = true
-               })
-             } else if (partType == 2) {
-               val partTMInt0 = Utils.countMilliseconds(LocalDateTime.parse(partiVals(0).split("[ T]")(0).replace(".", "-") +
-                 "T" + partiVals(0).split("[ T]")(1)))
-               val partTMInt1 = Utils.countMilliseconds(LocalDateTime.parse(partiVals(1).split("[ T]")(0).replace(".", "-") +
-                 "T" + partiVals(1).split("[ T]")(1)))
-               if ((partTMInt0 < userTMInt || partTMInt1 < userTMInt) ) typeFlag = true
-             } else {
-               val partTMInt = Utils.countMilliseconds(LocalDateTime.parse(partiVals(0).split("[ T]")(0).replace(".", "-") +
-                 "T" + partiVals(0).split("[ T]")(1)))
-               if(partTMInt < userTMInt) typeFlag = true
-             }
-
-             if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
-               flagPart = true
-             }
-           }
-           case GreaterThan(attr, value) => {
-             var typeFlag = false
-             var userTM : String = null
-             if (value.toString.contains(" ")) { userTM = value.toString.replace(" ", "T") }
-             else userTM = value.toString
-             val userTMInt = Utils.countMilliseconds(LocalDateTime.parse(userTM))
-
-             if (partType == 3) {
-               partiVals.foreach(pv => {
-                 val partTMInt = Utils.countMilliseconds(LocalDateTime.parse(pv.split("[ T]")(0).replace(".", "-") +
-                   "T" + pv.split("[ T]")(1)))
-                 if (partTMInt > userTMInt) typeFlag = true
-               })
-             } else if (partType == 2) {
-               val partTMInt0 = Utils.countMilliseconds(LocalDateTime.parse(partiVals(0).split("[ T]")(0).replace(".", "-") +
-                 "T" + partiVals(0).split("[ T]")(1)))
-               val partTMInt1 = Utils.countMilliseconds(LocalDateTime.parse(partiVals(1).split("[ T]")(0).replace(".", "-") +
-                 "T" + partiVals(1).split("[ T]")(1)))
-               if ((partTMInt0 > userTMInt || partTMInt1 > userTMInt) ) typeFlag = true
-             } else {
-               val partTMInt = Utils.countMilliseconds(LocalDateTime.parse(partiVals(0).split("[ T]")(0).replace(".", "-") +
-                 "T" + partiVals(0).split("[ T]")(1)))
-               if(partTMInt > userTMInt) typeFlag = true
-             }
-             if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
-               flagPart = true
-             }
-           }
-           case LessThanOrEqual(attr, value) => {
-             var typeFlag = false
-             var userTM : String = null
-             if (value.toString.contains(" ")) { userTM = value.toString.replace(" ", "T") }
-             else userTM = value.toString
-             val userTMInt = Utils.countMilliseconds(LocalDateTime.parse(userTM))
-
-             if (partType == 3) {
-               partiVals.foreach(pv => {
-                 val partTMInt = Utils.countMilliseconds(LocalDateTime.parse(pv.split("[ T]")(0).replace(".", "-") +
-                   "T" + pv.split("[ T]")(1)))
-                 if (partTMInt <= userTMInt) typeFlag = true
-               })
-             } else if (partType == 2) {
-               val partTMInt0 = Utils.countMilliseconds(LocalDateTime.parse(partiVals(0).split("[ T]")(0).replace(".", "-") +
-                 "T" + partiVals(0).split("[ T]")(1)))
-               val partTMInt1 = Utils.countMilliseconds(LocalDateTime.parse(partiVals(1).split("[ T]")(0).replace(".", "-") +
-                 "T" + partiVals(1).split("[ T]")(1)))
-               if ((partTMInt0 <= userTMInt || partTMInt1 <= userTMInt) ) typeFlag = true
-             } else {
-               val partTMInt = Utils.countMilliseconds(LocalDateTime.parse(partiVals(0).split("[ T]")(0).replace(".", "-") +
-                 "T" + partiVals(0).split("[ T]")(1)))
-               if(partTMInt <= userTMInt) typeFlag = true
-             }
-
-             if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
-               flagPart = true
-             }
-           }
-           case GreaterThanOrEqual(attr, value) => {
-             var typeFlag = false
-             var userTM : String = null
-             if (value.toString.contains(" ")) { userTM = value.toString.replace(" ", "T") }
-             else userTM = value.toString
-             val userTMInt = Utils.countMilliseconds(LocalDateTime.parse(userTM))
-
-             if (partType == 3) {
-               partiVals.foreach(pv => {
-                 val partTMInt = Utils.countMilliseconds(LocalDateTime.parse(pv.split("[ T]")(0).replace(".", "-") +
-                   "T" + pv.split("[ T]")(1)))
-                 if (partTMInt >= userTMInt) typeFlag = true
-               })
-             } else if (partType == 2) {
-               val partTMInt0 = Utils.countMilliseconds(LocalDateTime.parse(partiVals(0).split("[ T]")(0).replace(".", "-") +
-                 "T" + partiVals(0).split("[ T]")(1)))
-               val partTMInt1 = Utils.countMilliseconds(LocalDateTime.parse(partiVals(1).split("[ T]")(0).replace(".", "-") +
-                 "T" + partiVals(1).split("[ T]")(1)))
-               if ((partTMInt0 >= userTMInt || partTMInt1 >= userTMInt) ) typeFlag = true
-             } else {
-               val partTMInt = Utils.countMilliseconds(LocalDateTime.parse(partiVals(0).split("[ T]")(0).replace(".", "-") +
-                 "T" + partiVals(0).split("[ T]")(1)))
-               if(partTMInt >= userTMInt) typeFlag = true
-             }
-             if ((attr.equalsIgnoreCase(partCol) && typeFlag )) {
-               flagPart = true
-             }
-           }
-           case In(attr, value) => {
-             var typeFlag = false
-             value.foreach(v => {
-               var userTM : String = null
-               if (v.toString.contains(" ")) { userTM = v.toString.replace(" ", "T") }
-               else userTM = v.toString
+             if (attr.equalsIgnoreCase(partCol)) {
+               var typeFlag = false
+               var userTM: String = null
+               if (value.toString.contains(" ")) {
+                 userTM = value.toString.replace(" ", "T")
+               }
+               else userTM = value.toString
                val userTMInt = Utils.countMilliseconds(LocalDateTime.parse(userTM))
 
-               if (partType == 3) {
+               if (partiType == 3) {
                  partiVals.foreach(pv => {
                    val partTMInt = Utils.countMilliseconds(LocalDateTime.parse(pv.split("[ T]")(0).replace(".", "-") +
                      "T" + pv.split("[ T]")(1)))
                    if (partTMInt == userTMInt) typeFlag = true
                  })
-               } else if (partType == 2) {
+               } else if (partiType == 2) {
                  val partTMInt0 = Utils.countMilliseconds(LocalDateTime.parse(partiVals(0).split("[ T]")(0).replace(".", "-") +
                    "T" + partiVals(0).split("[ T]")(1)))
                  val partTMInt1 = Utils.countMilliseconds(LocalDateTime.parse(partiVals(1).split("[ T]")(0).replace(".", "-") +
@@ -1916,11 +1936,178 @@ case class DolphinDBPartitioner(option: DolphinDBOptions) extends Serializable {
                } else {
                  val partTMInt = Utils.countMilliseconds(LocalDateTime.parse(partiVals(0).split("[ T]")(0).replace(".", "-") +
                    "T" + partiVals(0).split("[ T]")(1)))
-                 if(partTMInt == userTMInt) typeFlag = true
+                 if (partTMInt == userTMInt) typeFlag = true
                }
-             })
-             if (attr.equalsIgnoreCase(partCol) && typeFlag) {
-               flagPart = true
+
+               if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
+                 flagPart = true
+               }
+             }
+           }
+           case LessThan(attr, value) => {
+             if (attr.equalsIgnoreCase(partCol)) {
+               var typeFlag = false
+               var userTM: String = null
+               if (value.toString.contains(" ")) {
+                 userTM = value.toString.replace(" ", "T")
+               }
+               else userTM = value.toString
+               val userTMInt = Utils.countMilliseconds(LocalDateTime.parse(userTM))
+
+               if (partiType == 3) {
+                 partiVals.foreach(pv => {
+                   val partTMInt = Utils.countMilliseconds(LocalDateTime.parse(pv.split("[ T]")(0).replace(".", "-") +
+                     "T" + pv.split("[ T]")(1)))
+                   if (partTMInt < userTMInt) typeFlag = true
+                 })
+               } else if (partiType == 2) {
+                 val partTMInt0 = Utils.countMilliseconds(LocalDateTime.parse(partiVals(0).split("[ T]")(0).replace(".", "-") +
+                   "T" + partiVals(0).split("[ T]")(1)))
+                 val partTMInt1 = Utils.countMilliseconds(LocalDateTime.parse(partiVals(1).split("[ T]")(0).replace(".", "-") +
+                   "T" + partiVals(1).split("[ T]")(1)))
+                 if ((partTMInt0 < userTMInt || partTMInt1 < userTMInt)) typeFlag = true
+               } else {
+                 val partTMInt = Utils.countMilliseconds(LocalDateTime.parse(partiVals(0).split("[ T]")(0).replace(".", "-") +
+                   "T" + partiVals(0).split("[ T]")(1)))
+                 if (partTMInt < userTMInt) typeFlag = true
+               }
+
+               if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
+                 flagPart = true
+               }
+             }
+           }
+           case GreaterThan(attr, value) => {
+             if (attr.equalsIgnoreCase(partCol)) {
+               var typeFlag = false
+               var userTM: String = null
+               if (value.toString.contains(" ")) {
+                 userTM = value.toString.replace(" ", "T")
+               }
+               else userTM = value.toString
+               val userTMInt = Utils.countMilliseconds(LocalDateTime.parse(userTM))
+
+               if (partiType == 3) {
+                 partiVals.foreach(pv => {
+                   val partTMInt = Utils.countMilliseconds(LocalDateTime.parse(pv.split("[ T]")(0).replace(".", "-") +
+                     "T" + pv.split("[ T]")(1)))
+                   if (partTMInt > userTMInt) typeFlag = true
+                 })
+               } else if (partiType == 2) {
+                 val partTMInt0 = Utils.countMilliseconds(LocalDateTime.parse(partiVals(0).split("[ T]")(0).replace(".", "-") +
+                   "T" + partiVals(0).split("[ T]")(1)))
+                 val partTMInt1 = Utils.countMilliseconds(LocalDateTime.parse(partiVals(1).split("[ T]")(0).replace(".", "-") +
+                   "T" + partiVals(1).split("[ T]")(1)))
+                 if ((partTMInt0 > userTMInt || partTMInt1 > userTMInt)) typeFlag = true
+               } else {
+                 val partTMInt = Utils.countMilliseconds(LocalDateTime.parse(partiVals(0).split("[ T]")(0).replace(".", "-") +
+                   "T" + partiVals(0).split("[ T]")(1)))
+                 if (partTMInt > userTMInt) typeFlag = true
+               }
+               if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
+                 flagPart = true
+               }
+             }
+           }
+           case LessThanOrEqual(attr, value) => {
+             if (attr.equalsIgnoreCase(partCol)) {
+               var typeFlag = false
+               var userTM: String = null
+               if (value.toString.contains(" ")) {
+                 userTM = value.toString.replace(" ", "T")
+               }
+               else userTM = value.toString
+               val userTMInt = Utils.countMilliseconds(LocalDateTime.parse(userTM))
+
+               if (partiType == 3) {
+                 partiVals.foreach(pv => {
+                   val partTMInt = Utils.countMilliseconds(LocalDateTime.parse(pv.split("[ T]")(0).replace(".", "-") +
+                     "T" + pv.split("[ T]")(1)))
+                   if (partTMInt <= userTMInt) typeFlag = true
+                 })
+               } else if (partiType == 2) {
+                 val partTMInt0 = Utils.countMilliseconds(LocalDateTime.parse(partiVals(0).split("[ T]")(0).replace(".", "-") +
+                   "T" + partiVals(0).split("[ T]")(1)))
+                 val partTMInt1 = Utils.countMilliseconds(LocalDateTime.parse(partiVals(1).split("[ T]")(0).replace(".", "-") +
+                   "T" + partiVals(1).split("[ T]")(1)))
+                 if ((partTMInt0 <= userTMInt || partTMInt1 <= userTMInt)) typeFlag = true
+               } else {
+                 val partTMInt = Utils.countMilliseconds(LocalDateTime.parse(partiVals(0).split("[ T]")(0).replace(".", "-") +
+                   "T" + partiVals(0).split("[ T]")(1)))
+                 if (partTMInt <= userTMInt) typeFlag = true
+               }
+
+               if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
+                 flagPart = true
+               }
+             }
+           }
+           case GreaterThanOrEqual(attr, value) => {
+             if (attr.equalsIgnoreCase(partCol)) {
+               var typeFlag = false
+               var userTM: String = null
+               if (value.toString.contains(" ")) {
+                 userTM = value.toString.replace(" ", "T")
+               }
+               else userTM = value.toString
+               val userTMInt = Utils.countMilliseconds(LocalDateTime.parse(userTM))
+
+               if (partiType == 3) {
+                 partiVals.foreach(pv => {
+                   val partTMInt = Utils.countMilliseconds(LocalDateTime.parse(pv.split("[ T]")(0).replace(".", "-") +
+                     "T" + pv.split("[ T]")(1)))
+                   if (partTMInt >= userTMInt) typeFlag = true
+                 })
+               } else if (partiType == 2) {
+                 val partTMInt0 = Utils.countMilliseconds(LocalDateTime.parse(partiVals(0).split("[ T]")(0).replace(".", "-") +
+                   "T" + partiVals(0).split("[ T]")(1)))
+                 val partTMInt1 = Utils.countMilliseconds(LocalDateTime.parse(partiVals(1).split("[ T]")(0).replace(".", "-") +
+                   "T" + partiVals(1).split("[ T]")(1)))
+                 if ((partTMInt0 >= userTMInt || partTMInt1 >= userTMInt)) typeFlag = true
+               } else {
+                 val partTMInt = Utils.countMilliseconds(LocalDateTime.parse(partiVals(0).split("[ T]")(0).replace(".", "-") +
+                   "T" + partiVals(0).split("[ T]")(1)))
+                 if (partTMInt >= userTMInt) typeFlag = true
+               }
+               if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
+                 flagPart = true
+               }
+             }
+           }
+           case In(attr, value) => {
+             if (attr.equalsIgnoreCase(partCol)) {
+               var typeFlag = false
+               value.foreach(v => {
+                 var userTM: String = null
+                 if (v.toString.contains(" ")) {
+                   userTM = v.toString.replace(" ", "T")
+                 }
+                 else userTM = v.toString
+                 val userTMInt = Utils.countMilliseconds(LocalDateTime.parse(userTM))
+
+                 if (partiType == 3) {
+                   partiVals.foreach(pv => {
+                     val partTMInt = Utils.countMilliseconds(LocalDateTime.parse(pv.split("[ T]")(0).replace(".", "-") +
+                       "T" + pv.split("[ T]")(1)))
+                     if (partTMInt == userTMInt) typeFlag = true
+                   })
+                 } else if (partiType == 2) {
+                   val partTMInt0 = Utils.countMilliseconds(LocalDateTime.parse(partiVals(0).split("[ T]")(0).replace(".", "-") +
+                     "T" + partiVals(0).split("[ T]")(1)))
+                   val partTMInt1 = Utils.countMilliseconds(LocalDateTime.parse(partiVals(1).split("[ T]")(0).replace(".", "-") +
+                     "T" + partiVals(1).split("[ T]")(1)))
+                   if (partTMInt0 == partTMInt1 && partTMInt0 == userTMInt) typeFlag = true
+                   else if ((partTMInt0 <= userTMInt && userTMInt < partTMInt1) ||
+                     partTMInt1 <= userTMInt && userTMInt < partTMInt0) typeFlag = true
+                 } else {
+                   val partTMInt = Utils.countMilliseconds(LocalDateTime.parse(partiVals(0).split("[ T]")(0).replace(".", "-") +
+                     "T" + partiVals(0).split("[ T]")(1)))
+                   if (partTMInt == userTMInt) typeFlag = true
+                 }
+               })
+               if (attr.equalsIgnoreCase(partCol) && typeFlag) {
+                 flagPart = true
+               }
              }
            }
            case Not(f) => {
@@ -1942,147 +2129,24 @@ case class DolphinDBPartitioner(option: DolphinDBOptions) extends Serializable {
            }
            case _ =>
          })
-       } else if (partType.equals("NANOTIME")) {
+       } else if (colType.equals("NANOTIME")) {
          partFilter.foreach(f => f match {
            case EqualTo(attr, value) => {
-             var typeFlag = false
-             var userNT : String = null
-             if (value.toString.contains(" ")|| value.toString.contains("T")) { userNT = value.toString.split("[ T]")(1) }
-             else userNT = value.toString
-             val userNTLong = Utils.countNanoseconds(LocalTime.parse(userNT))
+             if (attr.equalsIgnoreCase(partCol)) {
+               var typeFlag = false
+               var userNT: String = null
+               if (value.toString.contains(" ") || value.toString.contains("T")) {
+                 userNT = value.toString.split("[ T]")(1)
+               }
+               else userNT = value.toString
+               val userNTLong = Utils.countNanoseconds(LocalTime.parse(userNT))
 
-             if (partType == 3) {
-               partiVals.foreach(pv => {
-                 val partNTLong = Utils.countNanoseconds(LocalTime.parse(pv))
-                 if (partNTLong == userNTLong) typeFlag = true
-               })
-             } else if (partType == 2) {
-               val partNTLong0 = Utils.countNanoseconds(LocalTime.parse(partiVals(0)))
-               val partNTLong1 = Utils.countNanoseconds(LocalTime.parse(partiVals(1)))
-               if (partNTLong0 == partNTLong1 && partNTLong0 == userNTLong) typeFlag = true
-               else if ((partNTLong0 <= userNTLong && userNTLong < partNTLong1) ||
-                 partNTLong1 <= userNTLong && userNTLong < partNTLong0) typeFlag = true
-             } else {
-               val partTMInt = Utils.countNanoseconds(LocalTime.parse(partiVals(0)))
-               if(partTMInt == userNTLong) typeFlag = true
-             }
-             if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
-               flagPart = true
-             }
-           }
-           case LessThan(attr, value) => {
-             var typeFlag = false
-             var userNT : String = null
-             if (value.toString.contains(" ")|| value.toString.contains("T")) { userNT = value.toString.split("[ T]")(1) }
-             else userNT = value.toString
-             val userNTLong = Utils.countNanoseconds(LocalTime.parse(userNT))
-
-             if (partType == 3) {
-               partiVals.foreach(pv => {
-                 val partNTLong = Utils.countNanoseconds(LocalTime.parse(pv))
-                 if (partNTLong < userNTLong) typeFlag = true
-               })
-             } else if (partType == 2) {
-               val partNTLong0 = Utils.countNanoseconds(LocalTime.parse(partiVals(0)))
-               val partNTLong1 = Utils.countNanoseconds(LocalTime.parse(partiVals(1)))
-               if (partNTLong0 == partNTLong1 && partNTLong0 == userNTLong) typeFlag = true
-               else if ((partNTLong0 < userNTLong || partNTLong1 < userNTLong)) typeFlag = true
-             } else {
-               val partTMInt = Utils.countNanoseconds(LocalTime.parse(partiVals(0)))
-               if(partTMInt < userNTLong) typeFlag = true
-             }
-             if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
-               flagPart = true
-             }
-           }
-           case GreaterThan(attr, value) => {
-             var typeFlag = false
-             var userNT : String = null
-             if (value.toString.contains(" ")|| value.toString.contains("T")) { userNT = value.toString.split("[ T]")(1) }
-             else userNT = value.toString
-             val userNTLong = Utils.countNanoseconds(LocalTime.parse(userNT))
-
-             if (partType == 3) {
-               partiVals.foreach(pv => {
-                 val partNTLong = Utils.countNanoseconds(LocalTime.parse(pv))
-                 if (partNTLong > userNTLong) typeFlag = true
-               })
-             } else if (partType == 2) {
-               val partNTLong0 = Utils.countNanoseconds(LocalTime.parse(partiVals(0)))
-               val partNTLong1 = Utils.countNanoseconds(LocalTime.parse(partiVals(1)))
-               if (partNTLong0 == partNTLong1 && partNTLong0 == userNTLong) typeFlag = true
-               else if ((partNTLong0 > userNTLong || partNTLong1 > userNTLong)) typeFlag = true
-             } else {
-               val partTMInt = Utils.countNanoseconds(LocalTime.parse(partiVals(0)))
-               if(partTMInt > userNTLong) typeFlag = true
-             }
-             if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
-               flagPart = true
-             }
-           }
-           case LessThanOrEqual(attr, value) => {
-             var typeFlag = false
-             var userNT : String = null
-             if (value.toString.contains(" ")|| value.toString.contains("T")) { userNT = value.toString.split("[ T]")(1) }
-             else userNT = value.toString
-             val userNTLong = Utils.countNanoseconds(LocalTime.parse(userNT))
-
-             if (partType == 3) {
-               partiVals.foreach(pv => {
-                 val partNTLong = Utils.countNanoseconds(LocalTime.parse(pv))
-                 if (partNTLong <= userNTLong) typeFlag = true
-               })
-             } else if (partType == 2) {
-               val partNTLong0 = Utils.countNanoseconds(LocalTime.parse(partiVals(0)))
-               val partNTLong1 = Utils.countNanoseconds(LocalTime.parse(partiVals(1)))
-               if (partNTLong0 == partNTLong1 && partNTLong0 == userNTLong) typeFlag = true
-               else if ((partNTLong0 <= userNTLong || partNTLong1 <= userNTLong)) typeFlag = true
-             } else {
-               val partTMInt = Utils.countNanoseconds(LocalTime.parse(partiVals(0)))
-               if(partTMInt <= userNTLong) typeFlag = true
-             }
-             if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
-               flagPart = true
-             }
-           }
-           case GreaterThanOrEqual(attr, value) => {
-             var typeFlag = false
-             var userNT : String = null
-             if (value.toString.contains(" ")|| value.toString.contains("T")) { userNT = value.toString.split("[ T]")(1) }
-             else userNT = value.toString
-             val userNTLong = Utils.countNanoseconds(LocalTime.parse(userNT))
-
-             if (partType == 3) {
-               partiVals.foreach(pv => {
-                 val partNTLong = Utils.countNanoseconds(LocalTime.parse(pv))
-                 if (partNTLong >= userNTLong) typeFlag = true
-               })
-             } else if (partType == 2) {
-               val partNTLong0 = Utils.countNanoseconds(LocalTime.parse(partiVals(0)))
-               val partNTLong1 = Utils.countNanoseconds(LocalTime.parse(partiVals(1)))
-               if (partNTLong0 == partNTLong1 && partNTLong0 == userNTLong) typeFlag = true
-               else if ((partNTLong0 >= userNTLong || partNTLong1 >= userNTLong)) typeFlag = true
-             } else {
-               val partTMInt = Utils.countNanoseconds(LocalTime.parse(partiVals(0)))
-               if(partTMInt >= userNTLong) typeFlag = true
-             }
-             if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
-               flagPart = true
-             }
-           }
-           case In(attr, value) => {
-             var typeFlag = false
-             value.foreach(v => {
-               var userNT : String = null
-               if (v.toString.contains(" ") || value.toString.contains("T")) { userNT = v.toString.split("[ T]")(1) }
-               else userNT = v.toString
-               val userNTLong = Utils.countMilliseconds(LocalDateTime.parse(userNT))
-               if (partType == 3) {
+               if (partiType == 3) {
                  partiVals.foreach(pv => {
                    val partNTLong = Utils.countNanoseconds(LocalTime.parse(pv))
                    if (partNTLong == userNTLong) typeFlag = true
                  })
-               } else if (partType == 2) {
+               } else if (partiType == 2) {
                  val partNTLong0 = Utils.countNanoseconds(LocalTime.parse(partiVals(0)))
                  val partNTLong1 = Utils.countNanoseconds(LocalTime.parse(partiVals(1)))
                  if (partNTLong0 == partNTLong1 && partNTLong0 == userNTLong) typeFlag = true
@@ -2090,11 +2154,158 @@ case class DolphinDBPartitioner(option: DolphinDBOptions) extends Serializable {
                    partNTLong1 <= userNTLong && userNTLong < partNTLong0) typeFlag = true
                } else {
                  val partTMInt = Utils.countNanoseconds(LocalTime.parse(partiVals(0)))
-                 if(partTMInt == userNTLong) typeFlag = true
+                 if (partTMInt == userNTLong) typeFlag = true
                }
-             })
-             if (attr.equalsIgnoreCase(partCol) && typeFlag) {
-               flagPart = true
+               if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
+                 flagPart = true
+               }
+             }
+           }
+           case LessThan(attr, value) => {
+             if (attr.equalsIgnoreCase(partCol)) {
+               var typeFlag = false
+               var userNT: String = null
+               if (value.toString.contains(" ") || value.toString.contains("T")) {
+                 userNT = value.toString.split("[ T]")(1)
+               }
+               else userNT = value.toString
+               val userNTLong = Utils.countNanoseconds(LocalTime.parse(userNT))
+
+               if (partiType == 3) {
+                 partiVals.foreach(pv => {
+                   val partNTLong = Utils.countNanoseconds(LocalTime.parse(pv))
+                   if (partNTLong < userNTLong) typeFlag = true
+                 })
+               } else if (partiType == 2) {
+                 val partNTLong0 = Utils.countNanoseconds(LocalTime.parse(partiVals(0)))
+                 val partNTLong1 = Utils.countNanoseconds(LocalTime.parse(partiVals(1)))
+                 if (partNTLong0 == partNTLong1 && partNTLong0 == userNTLong) typeFlag = true
+                 else if ((partNTLong0 < userNTLong || partNTLong1 < userNTLong)) typeFlag = true
+               } else {
+                 val partTMInt = Utils.countNanoseconds(LocalTime.parse(partiVals(0)))
+                 if (partTMInt < userNTLong) typeFlag = true
+               }
+               if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
+                 flagPart = true
+               }
+             }
+           }
+           case GreaterThan(attr, value) => {
+             if (attr.equalsIgnoreCase(partCol)) {
+               var typeFlag = false
+               var userNT: String = null
+               if (value.toString.contains(" ") || value.toString.contains("T")) {
+                 userNT = value.toString.split("[ T]")(1)
+               }
+               else userNT = value.toString
+               val userNTLong = Utils.countNanoseconds(LocalTime.parse(userNT))
+
+               if (partiType == 3) {
+                 partiVals.foreach(pv => {
+                   val partNTLong = Utils.countNanoseconds(LocalTime.parse(pv))
+                   if (partNTLong > userNTLong) typeFlag = true
+                 })
+               } else if (partiType == 2) {
+                 val partNTLong0 = Utils.countNanoseconds(LocalTime.parse(partiVals(0)))
+                 val partNTLong1 = Utils.countNanoseconds(LocalTime.parse(partiVals(1)))
+                 if (partNTLong0 == partNTLong1 && partNTLong0 == userNTLong) typeFlag = true
+                 else if ((partNTLong0 > userNTLong || partNTLong1 > userNTLong)) typeFlag = true
+               } else {
+                 val partTMInt = Utils.countNanoseconds(LocalTime.parse(partiVals(0)))
+                 if (partTMInt > userNTLong) typeFlag = true
+               }
+               if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
+                 flagPart = true
+               }
+             }
+           }
+           case LessThanOrEqual(attr, value) => {
+             if (attr.equalsIgnoreCase(partCol)) {
+               var typeFlag = false
+               var userNT: String = null
+               if (value.toString.contains(" ") || value.toString.contains("T")) {
+                 userNT = value.toString.split("[ T]")(1)
+               }
+               else userNT = value.toString
+               val userNTLong = Utils.countNanoseconds(LocalTime.parse(userNT))
+
+               if (partiType == 3) {
+                 partiVals.foreach(pv => {
+                   val partNTLong = Utils.countNanoseconds(LocalTime.parse(pv))
+                   if (partNTLong <= userNTLong) typeFlag = true
+                 })
+               } else if (partiType == 2) {
+                 val partNTLong0 = Utils.countNanoseconds(LocalTime.parse(partiVals(0)))
+                 val partNTLong1 = Utils.countNanoseconds(LocalTime.parse(partiVals(1)))
+                 if (partNTLong0 == partNTLong1 && partNTLong0 == userNTLong) typeFlag = true
+                 else if ((partNTLong0 <= userNTLong || partNTLong1 <= userNTLong)) typeFlag = true
+               } else {
+                 val partTMInt = Utils.countNanoseconds(LocalTime.parse(partiVals(0)))
+                 if (partTMInt <= userNTLong) typeFlag = true
+               }
+               if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
+                 flagPart = true
+               }
+             }
+           }
+           case GreaterThanOrEqual(attr, value) => {
+             if (attr.equalsIgnoreCase(partCol)) {
+               var typeFlag = false
+               var userNT: String = null
+               if (value.toString.contains(" ") || value.toString.contains("T")) {
+                 userNT = value.toString.split("[ T]")(1)
+               }
+               else userNT = value.toString
+               val userNTLong = Utils.countNanoseconds(LocalTime.parse(userNT))
+
+               if (partiType == 3) {
+                 partiVals.foreach(pv => {
+                   val partNTLong = Utils.countNanoseconds(LocalTime.parse(pv))
+                   if (partNTLong >= userNTLong) typeFlag = true
+                 })
+               } else if (partiType == 2) {
+                 val partNTLong0 = Utils.countNanoseconds(LocalTime.parse(partiVals(0)))
+                 val partNTLong1 = Utils.countNanoseconds(LocalTime.parse(partiVals(1)))
+                 if (partNTLong0 == partNTLong1 && partNTLong0 == userNTLong) typeFlag = true
+                 else if ((partNTLong0 >= userNTLong || partNTLong1 >= userNTLong)) typeFlag = true
+               } else {
+                 val partTMInt = Utils.countNanoseconds(LocalTime.parse(partiVals(0)))
+                 if (partTMInt >= userNTLong) typeFlag = true
+               }
+               if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
+                 flagPart = true
+               }
+             }
+           }
+           case In(attr, value) => {
+             if (attr.equalsIgnoreCase(partCol)) {
+               var typeFlag = false
+               value.foreach(v => {
+                 var userNT: String = null
+                 if (v.toString.contains(" ") || value.toString.contains("T")) {
+                   userNT = v.toString.split("[ T]")(1)
+                 }
+                 else userNT = v.toString
+                 val userNTLong = Utils.countMilliseconds(LocalDateTime.parse(userNT))
+                 if (partiType == 3) {
+                   partiVals.foreach(pv => {
+                     val partNTLong = Utils.countNanoseconds(LocalTime.parse(pv))
+                     if (partNTLong == userNTLong) typeFlag = true
+                   })
+                 } else if (partiType == 2) {
+                   val partNTLong0 = Utils.countNanoseconds(LocalTime.parse(partiVals(0)))
+                   val partNTLong1 = Utils.countNanoseconds(LocalTime.parse(partiVals(1)))
+                   if (partNTLong0 == partNTLong1 && partNTLong0 == userNTLong) typeFlag = true
+                   else if ((partNTLong0 <= userNTLong && userNTLong < partNTLong1) ||
+                     partNTLong1 <= userNTLong && userNTLong < partNTLong0) typeFlag = true
+                 } else {
+                   val partTMInt = Utils.countNanoseconds(LocalTime.parse(partiVals(0)))
+                   if (partTMInt == userNTLong) typeFlag = true
+                 }
+               })
+               if (attr.equalsIgnoreCase(partCol) && typeFlag) {
+                 flagPart = true
+               }
              }
            }
            case Not(f) => {
@@ -2116,168 +2327,25 @@ case class DolphinDBPartitioner(option: DolphinDBOptions) extends Serializable {
            }
            case _ =>
          })
-       } else if (partType.equals("NANOTIMESTAMP")) {
+       } else if (colType.equals("NANOTIMESTAMP")) {
          partFilter.foreach(f => f match {
            case EqualTo(attr, value) => {
-             var typeFlag = false
-             var userNTS : String = null
-             if (value.toString.contains(" ")) { userNTS = value.toString.replace(" ", "T") }
-             else userNTS = value.toString
-             val userNTSLong = Utils.countNanoseconds(LocalDateTime.parse(userNTS))
-
-             if (partType == 3) {
-               partiVals.foreach(pv => {
-                 val partNTSLong = Utils.countNanoseconds(LocalDateTime.parse(pv.split("[ T]")(0).replace(".", "-") +
-                   "T" + pv.split("[ T]")(1)))
-                 if (partNTSLong == userNTSLong) typeFlag = true
-               })
-             } else if (partType == 2) {
-               val partNTSLong0 = Utils.countNanoseconds(LocalDateTime.parse(partiVals(0).split("[ T]")(0).replace(".", "-") +
-                 "T" + partiVals(0).split("[ T]")(1)))
-               val partNTSLong1 = Utils.countNanoseconds(LocalDateTime.parse(partiVals(1).split("[ T]")(0).replace(".", "-") +
-                 "T" + partiVals(1).split("[ T]")(1)))
-               if (partNTSLong0 == partNTSLong1 && partNTSLong0 == userNTSLong) typeFlag = true
-               else if ((partNTSLong0 <= userNTSLong && userNTSLong < partNTSLong1) ||
-                 partNTSLong1 <= userNTSLong && userNTSLong < partNTSLong0) typeFlag = true
-             } else {
-               val partNTSLong = Utils.countNanoseconds(LocalDateTime.parse(partiVals(0).split("[ T]")(0).replace(".", "-") +
-                 "T" + partiVals(0).split("[ T]")(1)))
-               if(partNTSLong == userNTSLong) typeFlag = true
-             }
-             if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
-               flagPart = true
-             }
-           }
-           case LessThan(attr, value) => {
-             var typeFlag = false
-             var userNTS : String = null
-             if (value.toString.contains(" ")) { userNTS = value.toString.replace(" ", "T") }
-             else userNTS = value.toString
-             val userNTSLong = Utils.countNanoseconds(LocalDateTime.parse(userNTS))
-
-             if (partType == 3) {
-               partiVals.foreach(pv => {
-                 val partNTSLong = Utils.countNanoseconds(LocalDateTime.parse(pv.split("[ T]")(0).replace(".", "-") +
-                   "T" + pv.split("[ T]")(1)))
-                 if (partNTSLong < userNTSLong) typeFlag = true
-               })
-             } else if (partType == 2) {
-               val partNTSLong0 = Utils.countNanoseconds(LocalDateTime.parse(partiVals(0).split("[ T]")(0).replace(".", "-") +
-                 "T" + partiVals(0).split("[ T]")(1)))
-               val partNTSLong1 = Utils.countNanoseconds(LocalDateTime.parse(partiVals(1).split("[ T]")(0).replace(".", "-") +
-                 "T" + partiVals(1).split("[ T]")(1)))
-               if ((partNTSLong0 < userNTSLong || partNTSLong1 < userNTSLong) ) typeFlag = true
-             } else {
-               val partNTSLong = Utils.countNanoseconds(LocalDateTime.parse(partiVals(0).split("[ T]")(0).replace(".", "-") +
-                 "T" + partiVals(0).split("[ T]")(1)))
-               if(partNTSLong < userNTSLong) typeFlag = true
-             }
-
-             if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
-               flagPart = true
-             }
-           }
-           case GreaterThan(attr, value) => {
-             var typeFlag = false
-             var userNTS : String = null
-             if (value.toString.contains(" ")) { userNTS = value.toString.replace(" ", "T") }
-             else userNTS = value.toString
-             val userNTSLong = Utils.countNanoseconds(LocalDateTime.parse(userNTS))
-
-             if (partType == 3) {
-               partiVals.foreach(pv => {
-                 val partNTSLong = Utils.countNanoseconds(LocalDateTime.parse(pv.split("[ T]")(0).replace(".", "-") +
-                   "T" + pv.split("[ T]")(1)))
-                 if (partNTSLong > userNTSLong) typeFlag = true
-               })
-             } else if (partType == 2) {
-               val partNTSLong0 = Utils.countNanoseconds(LocalDateTime.parse(partiVals(0).split("[ T]")(0).replace(".", "-") +
-                 "T" + partiVals(0).split("[ T]")(1)))
-               val partNTSLong1 = Utils.countNanoseconds(LocalDateTime.parse(partiVals(1).split("[ T]")(0).replace(".", "-") +
-                 "T" + partiVals(1).split("[ T]")(1)))
-               if ((partNTSLong0 > userNTSLong || partNTSLong1 > userNTSLong) ) typeFlag = true
-             } else {
-               val partNTSLong = Utils.countNanoseconds(LocalDateTime.parse(partiVals(0).split("[ T]")(0).replace(".", "-") +
-                 "T" + partiVals(0).split("[ T]")(1)))
-               if(partNTSLong > userNTSLong) typeFlag = true
-             }
-             if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
-               flagPart = true
-             }
-           }
-           case LessThanOrEqual(attr, value) => {
-             var typeFlag = false
-             var userNTS : String = null
-             if (value.toString.contains(" ")) { userNTS = value.toString.replace(" ", "T") }
-             else userNTS = value.toString
-             val userNTSLong = Utils.countNanoseconds(LocalDateTime.parse(userNTS))
-
-             if (partType == 3) {
-               partiVals.foreach(pv => {
-                 val partNTSLong = Utils.countNanoseconds(LocalDateTime.parse(pv.split("[ T]")(0).replace(".", "-") +
-                   "T" + pv.split("[ T]")(1)))
-                 if (partNTSLong <= userNTSLong) typeFlag = true
-               })
-             } else if (partType == 2) {
-               val partNTSLong0 = Utils.countNanoseconds(LocalDateTime.parse(partiVals(0).split("[ T]")(0).replace(".", "-") +
-                 "T" + partiVals(0).split("[ T]")(1)))
-               val partNTSLong1 = Utils.countNanoseconds(LocalDateTime.parse(partiVals(1).split("[ T]")(0).replace(".", "-") +
-                 "T" + partiVals(1).split("[ T]")(1)))
-               if ((partNTSLong0 <= userNTSLong || partNTSLong1 <= userNTSLong) ) typeFlag = true
-             } else {
-               val partNTSLong = Utils.countNanoseconds(LocalDateTime.parse(partiVals(0).split("[ T]")(0).replace(".", "-") +
-                 "T" + partiVals(0).split("[ T]")(1)))
-               if(partNTSLong <= userNTSLong) typeFlag = true
-             }
-
-             if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
-               flagPart = true
-             }
-           }
-           case GreaterThanOrEqual(attr, value) => {
-             var typeFlag = false
-             var userNTS : String = null
-             if (value.toString.contains(" ")) { userNTS = value.toString.replace(" ", "T") }
-             else userNTS = value.toString
-             val userNTSLong = Utils.countNanoseconds(LocalDateTime.parse(userNTS))
-
-             if (partType == 3) {
-               partiVals.foreach(pv => {
-                 val partNTSLong = Utils.countNanoseconds(LocalDateTime.parse(pv.split("[ T]")(0).replace(".", "-") +
-                   "T" + pv.split("[ T]")(1)))
-                 if (partNTSLong >= userNTSLong) typeFlag = true
-               })
-             } else if (partType == 2) {
-               val partNTSLong0 = Utils.countNanoseconds(LocalDateTime.parse(partiVals(0).split("[ T]")(0).replace(".", "-") +
-                 "T" + partiVals(0).split("[ T]")(1)))
-               val partNTSLong1 = Utils.countNanoseconds(LocalDateTime.parse(partiVals(1).split("[ T]")(0).replace(".", "-") +
-                 "T" + partiVals(1).split("[ T]")(1)))
-               if ((partNTSLong0 >= userNTSLong || partNTSLong1 >= userNTSLong) ) typeFlag = true
-             } else {
-               val partNTSLong = Utils.countNanoseconds(LocalDateTime.parse(partiVals(0).split("[ T]")(0).replace(".", "-") +
-                 "T" + partiVals(0).split("[ T]")(1)))
-               if(partNTSLong >= userNTSLong) typeFlag = true
-             }
-
-             if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
-               flagPart = true
-             }
-           }
-           case In(attr, value) => {
-             var typeFlag = false
-             value.foreach(v => {
-               var userNTS : String = null
-               if (v.toString.contains(" ")) { userNTS = v.toString.replace(" ", "T") }
-               else userNTS = v.toString
+             if (attr.equalsIgnoreCase(partCol)) {
+               var typeFlag = false
+               var userNTS: String = null
+               if (value.toString.contains(" ")) {
+                 userNTS = value.toString.replace(" ", "T")
+               }
+               else userNTS = value.toString
                val userNTSLong = Utils.countNanoseconds(LocalDateTime.parse(userNTS))
 
-               if (partType == 3) {
+               if (partiType == 3) {
                  partiVals.foreach(pv => {
                    val partNTSLong = Utils.countNanoseconds(LocalDateTime.parse(pv.split("[ T]")(0).replace(".", "-") +
                      "T" + pv.split("[ T]")(1)))
                    if (partNTSLong == userNTSLong) typeFlag = true
                  })
-               } else if (partType == 2) {
+               } else if (partiType == 2) {
                  val partNTSLong0 = Utils.countNanoseconds(LocalDateTime.parse(partiVals(0).split("[ T]")(0).replace(".", "-") +
                    "T" + partiVals(0).split("[ T]")(1)))
                  val partNTSLong1 = Utils.countNanoseconds(LocalDateTime.parse(partiVals(1).split("[ T]")(0).replace(".", "-") +
@@ -2288,11 +2356,178 @@ case class DolphinDBPartitioner(option: DolphinDBOptions) extends Serializable {
                } else {
                  val partNTSLong = Utils.countNanoseconds(LocalDateTime.parse(partiVals(0).split("[ T]")(0).replace(".", "-") +
                    "T" + partiVals(0).split("[ T]")(1)))
-                 if(partNTSLong == userNTSLong) typeFlag = true
+                 if (partNTSLong == userNTSLong) typeFlag = true
                }
-             })
-             if (attr.equalsIgnoreCase(partCol) && typeFlag) {
-               flagPart = true
+               if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
+                 flagPart = true
+               }
+             }
+           }
+           case LessThan(attr, value) => {
+             if (attr.equalsIgnoreCase(partCol)) {
+               var typeFlag = false
+               var userNTS: String = null
+               if (value.toString.contains(" ")) {
+                 userNTS = value.toString.replace(" ", "T")
+               }
+               else userNTS = value.toString
+               val userNTSLong = Utils.countNanoseconds(LocalDateTime.parse(userNTS))
+
+               if (partiType == 3) {
+                 partiVals.foreach(pv => {
+                   val partNTSLong = Utils.countNanoseconds(LocalDateTime.parse(pv.split("[ T]")(0).replace(".", "-") +
+                     "T" + pv.split("[ T]")(1)))
+                   if (partNTSLong < userNTSLong) typeFlag = true
+                 })
+               } else if (partiType == 2) {
+                 val partNTSLong0 = Utils.countNanoseconds(LocalDateTime.parse(partiVals(0).split("[ T]")(0).replace(".", "-") +
+                   "T" + partiVals(0).split("[ T]")(1)))
+                 val partNTSLong1 = Utils.countNanoseconds(LocalDateTime.parse(partiVals(1).split("[ T]")(0).replace(".", "-") +
+                   "T" + partiVals(1).split("[ T]")(1)))
+                 if ((partNTSLong0 < userNTSLong || partNTSLong1 < userNTSLong)) typeFlag = true
+               } else {
+                 val partNTSLong = Utils.countNanoseconds(LocalDateTime.parse(partiVals(0).split("[ T]")(0).replace(".", "-") +
+                   "T" + partiVals(0).split("[ T]")(1)))
+                 if (partNTSLong < userNTSLong) typeFlag = true
+               }
+
+               if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
+                 flagPart = true
+               }
+             }
+           }
+           case GreaterThan(attr, value) => {
+             if (attr.equalsIgnoreCase(partCol)) {
+               var typeFlag = false
+               var userNTS: String = null
+               if (value.toString.contains(" ")) {
+                 userNTS = value.toString.replace(" ", "T")
+               }
+               else userNTS = value.toString
+               val userNTSLong = Utils.countNanoseconds(LocalDateTime.parse(userNTS))
+
+               if (partiType == 3) {
+                 partiVals.foreach(pv => {
+                   val partNTSLong = Utils.countNanoseconds(LocalDateTime.parse(pv.split("[ T]")(0).replace(".", "-") +
+                     "T" + pv.split("[ T]")(1)))
+                   if (partNTSLong > userNTSLong) typeFlag = true
+                 })
+               } else if (partiType == 2) {
+                 val partNTSLong0 = Utils.countNanoseconds(LocalDateTime.parse(partiVals(0).split("[ T]")(0).replace(".", "-") +
+                   "T" + partiVals(0).split("[ T]")(1)))
+                 val partNTSLong1 = Utils.countNanoseconds(LocalDateTime.parse(partiVals(1).split("[ T]")(0).replace(".", "-") +
+                   "T" + partiVals(1).split("[ T]")(1)))
+                 if ((partNTSLong0 > userNTSLong || partNTSLong1 > userNTSLong)) typeFlag = true
+               } else {
+                 val partNTSLong = Utils.countNanoseconds(LocalDateTime.parse(partiVals(0).split("[ T]")(0).replace(".", "-") +
+                   "T" + partiVals(0).split("[ T]")(1)))
+                 if (partNTSLong > userNTSLong) typeFlag = true
+               }
+               if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
+                 flagPart = true
+               }
+             }
+           }
+           case LessThanOrEqual(attr, value) => {
+             if (attr.equalsIgnoreCase(partCol)) {
+               var typeFlag = false
+               var userNTS: String = null
+               if (value.toString.contains(" ")) {
+                 userNTS = value.toString.replace(" ", "T")
+               }
+               else userNTS = value.toString
+               val userNTSLong = Utils.countNanoseconds(LocalDateTime.parse(userNTS))
+
+               if (partiType == 3) {
+                 partiVals.foreach(pv => {
+                   val partNTSLong = Utils.countNanoseconds(LocalDateTime.parse(pv.split("[ T]")(0).replace(".", "-") +
+                     "T" + pv.split("[ T]")(1)))
+                   if (partNTSLong <= userNTSLong) typeFlag = true
+                 })
+               } else if (partiType == 2) {
+                 val partNTSLong0 = Utils.countNanoseconds(LocalDateTime.parse(partiVals(0).split("[ T]")(0).replace(".", "-") +
+                   "T" + partiVals(0).split("[ T]")(1)))
+                 val partNTSLong1 = Utils.countNanoseconds(LocalDateTime.parse(partiVals(1).split("[ T]")(0).replace(".", "-") +
+                   "T" + partiVals(1).split("[ T]")(1)))
+                 if ((partNTSLong0 <= userNTSLong || partNTSLong1 <= userNTSLong)) typeFlag = true
+               } else {
+                 val partNTSLong = Utils.countNanoseconds(LocalDateTime.parse(partiVals(0).split("[ T]")(0).replace(".", "-") +
+                   "T" + partiVals(0).split("[ T]")(1)))
+                 if (partNTSLong <= userNTSLong) typeFlag = true
+               }
+
+               if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
+                 flagPart = true
+               }
+             }
+           }
+           case GreaterThanOrEqual(attr, value) => {
+             if (attr.equalsIgnoreCase(partCol)) {
+               var typeFlag = false
+               var userNTS: String = null
+               if (value.toString.contains(" ")) {
+                 userNTS = value.toString.replace(" ", "T")
+               }
+               else userNTS = value.toString
+               val userNTSLong = Utils.countNanoseconds(LocalDateTime.parse(userNTS))
+
+               if (partiType == 3) {
+                 partiVals.foreach(pv => {
+                   val partNTSLong = Utils.countNanoseconds(LocalDateTime.parse(pv.split("[ T]")(0).replace(".", "-") +
+                     "T" + pv.split("[ T]")(1)))
+                   if (partNTSLong >= userNTSLong) typeFlag = true
+                 })
+               } else if (partiType == 2) {
+                 val partNTSLong0 = Utils.countNanoseconds(LocalDateTime.parse(partiVals(0).split("[ T]")(0).replace(".", "-") +
+                   "T" + partiVals(0).split("[ T]")(1)))
+                 val partNTSLong1 = Utils.countNanoseconds(LocalDateTime.parse(partiVals(1).split("[ T]")(0).replace(".", "-") +
+                   "T" + partiVals(1).split("[ T]")(1)))
+                 if ((partNTSLong0 >= userNTSLong || partNTSLong1 >= userNTSLong)) typeFlag = true
+               } else {
+                 val partNTSLong = Utils.countNanoseconds(LocalDateTime.parse(partiVals(0).split("[ T]")(0).replace(".", "-") +
+                   "T" + partiVals(0).split("[ T]")(1)))
+                 if (partNTSLong >= userNTSLong) typeFlag = true
+               }
+
+               if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
+                 flagPart = true
+               }
+             }
+           }
+           case In(attr, value) => {
+             if (attr.equalsIgnoreCase(partCol)) {
+               var typeFlag = false
+               value.foreach(v => {
+                 var userNTS: String = null
+                 if (v.toString.contains(" ")) {
+                   userNTS = v.toString.replace(" ", "T")
+                 }
+                 else userNTS = v.toString
+                 val userNTSLong = Utils.countNanoseconds(LocalDateTime.parse(userNTS))
+
+                 if (partiType == 3) {
+                   partiVals.foreach(pv => {
+                     val partNTSLong = Utils.countNanoseconds(LocalDateTime.parse(pv.split("[ T]")(0).replace(".", "-") +
+                       "T" + pv.split("[ T]")(1)))
+                     if (partNTSLong == userNTSLong) typeFlag = true
+                   })
+                 } else if (partiType == 2) {
+                   val partNTSLong0 = Utils.countNanoseconds(LocalDateTime.parse(partiVals(0).split("[ T]")(0).replace(".", "-") +
+                     "T" + partiVals(0).split("[ T]")(1)))
+                   val partNTSLong1 = Utils.countNanoseconds(LocalDateTime.parse(partiVals(1).split("[ T]")(0).replace(".", "-") +
+                     "T" + partiVals(1).split("[ T]")(1)))
+                   if (partNTSLong0 == partNTSLong1 && partNTSLong0 == userNTSLong) typeFlag = true
+                   else if ((partNTSLong0 <= userNTSLong && userNTSLong < partNTSLong1) ||
+                     partNTSLong1 <= userNTSLong && userNTSLong < partNTSLong0) typeFlag = true
+                 } else {
+                   val partNTSLong = Utils.countNanoseconds(LocalDateTime.parse(partiVals(0).split("[ T]")(0).replace(".", "-") +
+                     "T" + partiVals(0).split("[ T]")(1)))
+                   if (partNTSLong == userNTSLong) typeFlag = true
+                 }
+               })
+               if (attr.equalsIgnoreCase(partCol) && typeFlag) {
+                 flagPart = true
+               }
              }
            }
            case Not(f) => {
@@ -2314,125 +2549,18 @@ case class DolphinDBPartitioner(option: DolphinDBOptions) extends Serializable {
            }
            case _ =>
          })
-       } else if (partType.equals("DATE")) {
+       } else if (colType.equals("DATE")) {
          partFilter.foreach(f => f match {
            case EqualTo(attr, value) => {
-            var typeFlag = false
-             val userDInt = Utils.countDays(LocalDate.parse(value.toString))
-             if (partType == 3) {
-               partiVals.foreach(pv => {
-                 val partDInt = Utils.countDays(LocalDate.parse(pv.replace(".", "-")))
-                 if (partDInt == userDInt) typeFlag = true
-               })
-             } else if (partType == 2) {
-               val partDInt0 = Utils.countDays(LocalDate.parse(partiVals(0).replace(".", "-")))
-               val partDInt1 = Utils.countDays(LocalDate.parse(partiVals(1).replace(".", "-")))
-               if (partDInt0 == partDInt1 && partDInt0 == userDInt) typeFlag = true
-               else if ((partDInt0 <= userDInt && userDInt < partDInt1) ||
-                 partDInt1 <= userDInt && userDInt < partDInt0) typeFlag = true
-             } else {
-               val partDInt = Utils.countDays(LocalDate.parse(partiVals(0).replace(".", "-")))
-               if(partDInt == userDInt) typeFlag = true
-             }
-             if (attr.equalsIgnoreCase(partCol) && typeFlag) {
-               flagPart = true
-             }
-           }
-           case LessThan(attr, value) => {
-             var typeFlag = false
-             val userDInt = Utils.countDays(LocalDate.parse(value.toString))
-             if (partType == 3) {
-               partiVals.foreach(pv => {
-                 val partDInt = Utils.countDays(LocalDate.parse(pv.replace(".", "-")))
-                 if (partDInt < userDInt) typeFlag = true
-               })
-             } else if (partType == 2) {
-               val partDInt0 = Utils.countDays(LocalDate.parse(partiVals(0).replace(".", "-")))
-               val partDInt1 = Utils.countDays(LocalDate.parse(partiVals(1).replace(".", "-")))
-               if ((partDInt0 < userDInt || partDInt1 < userDInt)) typeFlag = true
-             } else {
-               val partDInt = Utils.countDays(LocalDate.parse(partiVals(0).replace(".", "-")))
-               if(partDInt < userDInt) typeFlag = true
-             }
-             if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
-               flagPart = true
-             }
-           }
-           case GreaterThan(attr, value) => {
-             var typeFlag = false
-             val userDInt = Utils.countDays(LocalDate.parse(value.toString))
-             if (partType == 3) {
-               partiVals.foreach(pv => {
-                 val partDInt = Utils.countDays(LocalDate.parse(pv.replace(".", "-")))
-                 if (partDInt > userDInt) typeFlag = true
-               })
-             } else if (partType == 2) {
-               val partDInt0 = Utils.countDays(LocalDate.parse(partiVals(0).replace(".", "-")))
-               val partDInt1 = Utils.countDays(LocalDate.parse(partiVals(1).replace(".", "-")))
-               if ((partDInt0 > userDInt || partDInt1 > userDInt)) typeFlag = true
-             } else {
-               val partDInt = Utils.countDays(LocalDate.parse(partiVals(0).replace(".", "-")))
-               if(partDInt > userDInt) typeFlag = true
-             }
-             if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
-               flagPart = true
-             }
-           }
-           case LessThanOrEqual(attr, value) => {
-
-             var typeFlag = false
-             val userDInt = Utils.countDays(LocalDate.parse(value.toString))
-             if (partType == 3) {
-               partiVals.foreach(pv => {
-                 val partDInt = Utils.countDays(LocalDate.parse(pv.replace(".", "-")))
-                 if (partDInt <= userDInt) typeFlag = true
-               })
-             } else if (partType == 2) {
-               val partDInt0 = Utils.countDays(LocalDate.parse(partiVals(0).replace(".", "-")))
-               val partDInt1 = Utils.countDays(LocalDate.parse(partiVals(1).replace(".", "-")))
-               if ((partDInt0 <= userDInt || partDInt1 <= userDInt)) typeFlag = true
-             } else {
-               val partDInt = Utils.countDays(LocalDate.parse(partiVals(0).replace(".", "-")))
-               if(partDInt <= userDInt) typeFlag = true
-             }
-             if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
-               flagPart = true
-             }
-           }
-           case GreaterThanOrEqual(attr, value) => {
-
-             var typeFlag = false
-             val userDInt = Utils.countDays(LocalDate.parse(value.toString))
-             if (partType == 3) {
-               partiVals.foreach(pv => {
-                 val partDInt = Utils.countDays(LocalDate.parse(pv.replace(".", "-")))
-                 if (partDInt >= userDInt) typeFlag = true
-               })
-             } else if (partType == 2) {
-               val partDInt0 = Utils.countDays(LocalDate.parse(partiVals(0).replace(".", "-")))
-               val partDInt1 = Utils.countDays(LocalDate.parse(partiVals(1).replace(".", "-")))
-               if ((partDInt0 >= userDInt || partDInt1 >= userDInt)) typeFlag = true
-             } else {
-               val partDInt = Utils.countDays(LocalDate.parse(partiVals(0).replace(".", "-")))
-               if(partDInt >= userDInt) typeFlag = true
-             }
-
-             if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
-               flagPart = true
-             }
-           }
-           case In(attr, value) => {
-             var vin = false
-             value.foreach(v => {
-
+             if (attr.equalsIgnoreCase(partCol)) {
                var typeFlag = false
                val userDInt = Utils.countDays(LocalDate.parse(value.toString))
-               if (partType == 3) {
+               if (partiType == 3) {
                  partiVals.foreach(pv => {
                    val partDInt = Utils.countDays(LocalDate.parse(pv.replace(".", "-")))
                    if (partDInt == userDInt) typeFlag = true
                  })
-               } else if (partType == 2) {
+               } else if (partiType == 2) {
                  val partDInt0 = Utils.countDays(LocalDate.parse(partiVals(0).replace(".", "-")))
                  val partDInt1 = Utils.countDays(LocalDate.parse(partiVals(1).replace(".", "-")))
                  if (partDInt0 == partDInt1 && partDInt0 == userDInt) typeFlag = true
@@ -2440,12 +2568,127 @@ case class DolphinDBPartitioner(option: DolphinDBOptions) extends Serializable {
                    partDInt1 <= userDInt && userDInt < partDInt0) typeFlag = true
                } else {
                  val partDInt = Utils.countDays(LocalDate.parse(partiVals(0).replace(".", "-")))
-                 if(partDInt == userDInt) typeFlag = true
+                 if (partDInt == userDInt) typeFlag = true
                }
                if (attr.equalsIgnoreCase(partCol) && typeFlag) {
                  flagPart = true
                }
-             })
+             }
+           }
+           case LessThan(attr, value) => {
+             if (attr.equalsIgnoreCase(partCol)) {
+               var typeFlag = false
+               val userDInt = Utils.countDays(LocalDate.parse(value.toString))
+               if (partiType == 3) {
+                 partiVals.foreach(pv => {
+                   val partDInt = Utils.countDays(LocalDate.parse(pv.replace(".", "-")))
+                   if (partDInt < userDInt) typeFlag = true
+                 })
+               } else if (partiType == 2) {
+                 val partDInt0 = Utils.countDays(LocalDate.parse(partiVals(0).replace(".", "-")))
+                 val partDInt1 = Utils.countDays(LocalDate.parse(partiVals(1).replace(".", "-")))
+                 if ((partDInt0 < userDInt || partDInt1 < userDInt)) typeFlag = true
+               } else {
+                 val partDInt = Utils.countDays(LocalDate.parse(partiVals(0).replace(".", "-")))
+                 if (partDInt < userDInt) typeFlag = true
+               }
+               if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
+                 flagPart = true
+               }
+             }
+           }
+           case GreaterThan(attr, value) => {
+             if (attr.equalsIgnoreCase(partCol)) {
+               var typeFlag = false
+               val userDInt = Utils.countDays(LocalDate.parse(value.toString))
+               if (partiType == 3) {
+                 partiVals.foreach(pv => {
+                   val partDInt = Utils.countDays(LocalDate.parse(pv.replace(".", "-")))
+                   if (partDInt > userDInt) typeFlag = true
+                 })
+               } else if (partiType == 2) {
+                 val partDInt0 = Utils.countDays(LocalDate.parse(partiVals(0).replace(".", "-")))
+                 val partDInt1 = Utils.countDays(LocalDate.parse(partiVals(1).replace(".", "-")))
+                 if ((partDInt0 > userDInt || partDInt1 > userDInt)) typeFlag = true
+               } else {
+                 val partDInt = Utils.countDays(LocalDate.parse(partiVals(0).replace(".", "-")))
+                 if (partDInt > userDInt) typeFlag = true
+               }
+               if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
+                 flagPart = true
+               }
+             }
+           }
+           case LessThanOrEqual(attr, value) => {
+             if (attr.equalsIgnoreCase(partCol)) {
+               var typeFlag = false
+               val userDInt = Utils.countDays(LocalDate.parse(value.toString))
+               if (partiType == 3) {
+                 partiVals.foreach(pv => {
+                   val partDInt = Utils.countDays(LocalDate.parse(pv.replace(".", "-")))
+                   if (partDInt <= userDInt) typeFlag = true
+                 })
+               } else if (partiType == 2) {
+                 val partDInt0 = Utils.countDays(LocalDate.parse(partiVals(0).replace(".", "-")))
+                 val partDInt1 = Utils.countDays(LocalDate.parse(partiVals(1).replace(".", "-")))
+                 if ((partDInt0 <= userDInt || partDInt1 <= userDInt)) typeFlag = true
+               } else {
+                 val partDInt = Utils.countDays(LocalDate.parse(partiVals(0).replace(".", "-")))
+                 if (partDInt <= userDInt) typeFlag = true
+               }
+               if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
+                 flagPart = true
+               }
+             }
+           }
+           case GreaterThanOrEqual(attr, value) => {
+             if (attr.equalsIgnoreCase(partCol)) {
+               var typeFlag = false
+               val userDInt = Utils.countDays(LocalDate.parse(value.toString))
+               if (partiType == 3) {
+                 partiVals.foreach(pv => {
+                   val partDInt = Utils.countDays(LocalDate.parse(pv.replace(".", "-")))
+                   if (partDInt >= userDInt) typeFlag = true
+                 })
+               } else if (partiType == 2) {
+                 val partDInt0 = Utils.countDays(LocalDate.parse(partiVals(0).replace(".", "-")))
+                 val partDInt1 = Utils.countDays(LocalDate.parse(partiVals(1).replace(".", "-")))
+                 if ((partDInt0 >= userDInt || partDInt1 >= userDInt)) typeFlag = true
+               } else {
+                 val partDInt = Utils.countDays(LocalDate.parse(partiVals(0).replace(".", "-")))
+                 if (partDInt >= userDInt) typeFlag = true
+               }
+
+               if ((attr.equalsIgnoreCase(partCol) && typeFlag)) {
+                 flagPart = true
+               }
+             }
+           }
+           case In(attr, value) => {
+             if (attr.equalsIgnoreCase(partCol)) {
+               var typeFlag = false
+               value.foreach(v => {
+                 val userDInt = Utils.countDays(LocalDate.parse(value.toString))
+                 if (partiType == 3) {
+                   partiVals.foreach(pv => {
+                     val partDInt = Utils.countDays(LocalDate.parse(pv.replace(".", "-")))
+                     if (partDInt == userDInt) typeFlag = true
+                   })
+                 } else if (partiType == 2) {
+                   val partDInt0 = Utils.countDays(LocalDate.parse(partiVals(0).replace(".", "-")))
+                   val partDInt1 = Utils.countDays(LocalDate.parse(partiVals(1).replace(".", "-")))
+                   if (partDInt0 == partDInt1 && partDInt0 == userDInt) typeFlag = true
+                   else if ((partDInt0 <= userDInt && userDInt < partDInt1) ||
+                     partDInt1 <= userDInt && userDInt < partDInt0) typeFlag = true
+                 } else {
+                   val partDInt = Utils.countDays(LocalDate.parse(partiVals(0).replace(".", "-")))
+                   if (partDInt == userDInt) typeFlag = true
+                 }
+                 if (attr.equalsIgnoreCase(partCol) && typeFlag) {
+                   flagPart = true
+                 }
+               })
+             }
            }
            case Not(f) => {
              if (!getDolphinDBPartitionBySingleFilter(partCol, partiVals,partiType,Array(f))) {

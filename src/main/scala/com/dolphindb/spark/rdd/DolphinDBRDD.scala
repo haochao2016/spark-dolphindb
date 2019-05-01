@@ -341,13 +341,8 @@ private[spark] class DolphinDBRDD(
         partCondition.append(" and ")
       }
     }
-    if (partCondition.length > 0) {
-      partCondition.append(" and ")
-      partCondition.append(s" $filterWhereClause ")
-    } else {
-      partCondition.append(s" $filterWhereClause ")
-    }
-    if (partCondition.length > 0) " where " + partCondition.toString()
+    if (filterWhereClause.length > 0)  " where " + partCondition.append(s" $filterWhereClause ").toString()
+    else if (partCondition.length > 0) " where " + partCondition.substring(0, partCondition.lastIndexOf("and"))
     else ""
   }
 
