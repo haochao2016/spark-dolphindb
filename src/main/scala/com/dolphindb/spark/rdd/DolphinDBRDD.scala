@@ -172,13 +172,18 @@ object DolphinDBRDD extends Logging {
             .replace("-", ".") + "M" }
           else value.toString
         }
-        case "TIME" => value.toString.split(" ")(1)
+        case "TIME" => {
+          val timeval = value.toString.split(" ")(1)
+          if( timeval.contains(".") && timeval.split(".")(1).length == 1) {
+            timeval.split(".")(0)
+          } else timeval
+        }
         case "MINUTE" => {
           val minute = value.toString.split(" ")(1)
           minute.substring(0, minute.lastIndexOf(":")) + "m"
         }
-        case "SECOND" => value.toString.split(" ")(1)
-        case "DATETIME" => value.toString
+        case "SECOND" => value.toString.split(" ")(1).split(".")(0)
+        case "DATETIME" => value.toString.split(".")(0)
         case "TIMESTAMP" => value.toString
         case "NANOTIME" => value.toString.split(" ")(1)
         case "NANOTIMESTAMP" => value.toString
