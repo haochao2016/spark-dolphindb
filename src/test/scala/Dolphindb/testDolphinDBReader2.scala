@@ -29,9 +29,9 @@ object testDolphinDBReader2 {
 
     val frame = spark.sql(
         s"""select BIDSIZ ,SYMBOL ,date, time from sd1 where
-              | date = to_date('2007-08-13')
-
+              | date = to_date('2007-08-13') and symbol="A"
               | """.stripMargin)
+
     frame.printSchema()
 
     frame.foreachPartition(x => println( "PARTITIONID : " + TaskContext.getPartitionId()))
