@@ -86,28 +86,35 @@ case class DolphinDBPartitioner(option: DolphinDBOptions) extends Serializable {
             vecBuf += vector.get(j).toString
           }
 
-
           /**  i = 0 means the first level partition in DolphinDB   */
           if (i == 0) {
-
+            /** if there is not dolphindb partition column in user sql, it will be load all dolphindb partition in spark partition */
+            var fliterFlag = false
+            if (partiFilters.length > 0) {
+              partiFilters.foreach(f => if(f.references(0).equalsIgnoreCase(partiCols(i))) fliterFlag = true)
+            }
             /** There are partition filter in User-defined SQL   */
-            if (partiFilters.length != 0 && getDolphinDBPartitionBySingleFilter(partiCols(i),
+            if (partiFilters.length != 0 && fliterFlag && getDolphinDBPartitionBySingleFilter(partiCols(i),
               vecBuf.toArray, partiType(i),partiFilters.toArray)) {
               tmpPartiVal += ArrayBuffer[Array[String]](vecBuf.toArray)
-            } else if (partiFilters.length == 0){
+            } else if (partiFilters.length == 0 || (!fliterFlag)){
             /**  There are not partition filter in User-defined SQL */
               tmpPartiVal += ArrayBuffer[Array[String]](vecBuf.toArray)
             }
           } else {
-
+            /** if there is not dolphindb partition column in user sql, it will be load all dolphindb partition in spark partition */
+            var fliterFlag = false
+            if (partiFilters.length != 0){
+              partiFilters.foreach(f => if(f.references(0).equalsIgnoreCase(partiCols(i))) fliterFlag = true)
+            }
             /**  means not the first level partition in DolphinDB */
             var addPartFlag = true
             /** There are partition filter in User-defined SQL   */
-            if (partiFilters.length != 0 && (!getDolphinDBPartitionBySingleFilter(partiCols(i),
+            if (partiFilters.length != 0 && fliterFlag && (!getDolphinDBPartitionBySingleFilter(partiCols(i),
               vecBuf.toArray, partiType(i), partiFilters.toArray))){
               addPartFlag = false
             }
-            if (addPartFlag) {
+            if (addPartFlag || (!fliterFlag)) {
               for (pv <- 0 until (partiValArr.size)) {
                 val tmpBuf = new ArrayBuffer[Array[String]]()
                 partiValArr(pv).copyToBuffer(tmpBuf)
@@ -173,6 +180,9 @@ case class DolphinDBPartitioner(option: DolphinDBOptions) extends Serializable {
     /**   Create spark partitions based on filtered partition values     */
     for (pi <- 0 until(partiValArr.length)) {
       partitions += new DolphinDBPartition(pi, addrs, partiCols,partiType, partiValArr(pi).toArray)
+    }
+    if (partitions.length == 0) {
+      partitions += new DolphinDBPartition(0, null, null,null,null)
     }
     partitions.toArray
   }

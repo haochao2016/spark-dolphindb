@@ -298,7 +298,7 @@ private[spark] class DolphinDBRDD(
     val partCondition = new mutable.StringBuilder("")
     /**  Add partition condition    */
     if (part.partiCols != null) {
-      for (i <- 0 until(part.partiCols.length)) {
+      for (i <- 0 until(part.partiVals.length)) {
         val colType = DolphinDBRDD.originNameToType.get(part.partiCols(i)).get.toUpperCase()
         partCondition.append(part.partiCols(i))
 
