@@ -382,13 +382,17 @@ private[spark] class DolphinDBRDD(
       conn.connect(hostAddress, ports(Random.nextInt(ports.size)) ,user, password)
     } else {
       val keyArr = part.hosts.keySet.toArray
-      val newHost = keyArr(Random.nextInt(keyArr.length))
-      if (newHost.contains(ip.substring(0, ip.lastIndexOf(".")))) {
-        /**  n the same network segment    */
-        val ports = part.hosts.get(newHost).get
-        conn.connect(newHost, ports(Random.nextInt(ports.size)) ,user, password)
-      } else {
+      if (keyArr.length == 0) {
         conn.connect(ip, port,user, password)
+      } else {
+        val newHost = keyArr(Random.nextInt(keyArr.length))
+        if (newHost.contains(ip.substring(0, ip.lastIndexOf(".")))) {
+          /**  n the same network segment    */
+          val ports = part.hosts.get(newHost).get
+          conn.connect(newHost, ports(Random.nextInt(ports.size)) ,user, password)
+        } else {
+          conn.connect(ip, port,user, password)
+        }
       }
     }
 
