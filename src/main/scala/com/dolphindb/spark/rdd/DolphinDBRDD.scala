@@ -319,14 +319,14 @@ private[spark] class DolphinDBRDD(
                 }
               }
             } else {
-              if (part.partiVals(i)(0) == part.partiVals(i)(1)) partCondition.append(" = " + part.partiVals(i)(0))
+              if (part.partiVals(i)(0).toLong == part.partiVals(i)(1).toLong) partCondition.append(" = " + part.partiVals(i)(0))
               else {
-                if (part.partiVals(i)(0) < part.partiVals(i)(1)){
-                  partCondition.append(" >= " + part.partiVals(i)(0))
-                  partCondition.append(" and "+ part.partiCols(i) +"< " + part.partiVals(i)(1))
+                if (part.partiVals(i)(0).toLong < part.partiVals(i)(1).toLong){
+                  partCondition.append(" >= " + part.partiVals(i)(0).toLong)
+                  partCondition.append(" and "+ part.partiCols(i) +"< " + part.partiVals(i)(1).toLong)
                 } else {
-                  partCondition.append(" >= " + part.partiVals(i)(1))
-                  partCondition.append(" and "+ part.partiCols(i) +"< " + part.partiVals(i)(0))
+                  partCondition.append(" >= " + part.partiVals(i)(1).toLong)
+                  partCondition.append(" and "+ part.partiCols(i) +"< " + part.partiVals(i)(0).toLong)
                 }
               }
             }
