@@ -125,7 +125,7 @@ object DolphinDBSchema extends Logging{
     case "VOID" => StructField(originName, NullType)
     case "BOOL" => StructField(originName, BooleanType)
     case "DOUBLE" => StructField(originName, DoubleType)
-    case "FLOAT" => StructField(originName, FloatType)
+      case "FLOAT" => StructField(originName, FloatType)
     case "LONG" => StructField(originName, LongType)
     case "INT" => StructField(originName, IntegerType)
     case "SHORT" => StructField(originName, ShortType)

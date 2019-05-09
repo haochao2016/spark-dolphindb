@@ -28,8 +28,8 @@ object testDolphinDBReader2 {
 //    val frame = spark.sql("select time  from sd1 where ofr = 1 or ofr=0 order by time desc")
 
     val frame = spark.sql(
-        s"""select BIDSIZ ,SYMBOL ,date, time from sd1
-              | where date = to_date("2007-08-01") and symbol = 'A'
+        s"""select BIDSIZ ,SYMBOL ,date, time from sd1 where
+              | date = to_date('2007-08-13')
               | """.stripMargin)
     frame.printSchema()
 

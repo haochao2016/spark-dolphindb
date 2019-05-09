@@ -86,28 +86,35 @@ case class DolphinDBPartitioner(option: DolphinDBOptions) extends Serializable {
             vecBuf += vector.get(j).toString
           }
 
-
           /**  i = 0 means the first level partition in DolphinDB   */
           if (i == 0) {
-
+            /** if there is not dolphindb partition column in user sql, it will be load all dolphindb partition in spark partition */
+            var fliterFlag = false
+            if (partiFilters.length > 0) {
+              partiFilters.foreach(f => if(f.references(0).equalsIgnoreCase(partiCols(i))) fliterFlag = true)
+            }
             /** There are partition filter in User-defined SQL   */
-            if (partiFilters.length != 0 && getDolphinDBPartitionBySingleFilter(partiCols(i),
+            if (partiFilters.length != 0 && fliterFlag && getDolphinDBPartitionBySingleFilter(partiCols(i),
               vecBuf.toArray, partiType(i),partiFilters.toArray)) {
               tmpPartiVal += ArrayBuffer[Array[String]](vecBuf.toArray)
-            } else if (partiFilters.length == 0){
+            } else if (partiFilters.length == 0 || (!fliterFlag)){
             /**  There are not partition filter in User-defined SQL */
               tmpPartiVal += ArrayBuffer[Array[String]](vecBuf.toArray)
             }
           } else {
-
+            /** if there is not dolphindb partition column in user sql, it will be load all dolphindb partition in spark partition */
+            var fliterFlag = false
+            if (partiFilters.length != 0){
+              partiFilters.foreach(f => if(f.references(0).equalsIgnoreCase(partiCols(i))) fliterFlag = true)
+            }
             /**  means not the first level partition in DolphinDB */
             var addPartFlag = true
             /** There are partition filter in User-defined SQL   */
-            if (partiFilters.length != 0 && (!getDolphinDBPartitionBySingleFilter(partiCols(i),
+            if (partiFilters.length != 0 && fliterFlag && (!getDolphinDBPartitionBySingleFilter(partiCols(i),
               vecBuf.toArray, partiType(i), partiFilters.toArray))){
               addPartFlag = false
             }
-            if (addPartFlag) {
+            if (addPartFlag || (!fliterFlag)) {
               for (pv <- 0 until (partiValArr.size)) {
                 val tmpBuf = new ArrayBuffer[Array[String]]()
                 partiValArr(pv).copyToBuffer(tmpBuf)
@@ -174,6 +181,9 @@ case class DolphinDBPartitioner(option: DolphinDBOptions) extends Serializable {
     for (pi <- 0 until(partiValArr.length)) {
       partitions += new DolphinDBPartition(pi, addrs, partiCols,partiType, partiValArr(pi).toArray)
     }
+    if (partitions.length == 0) {
+      partitions += new DolphinDBPartition(0, null, null,null,null)
+    }
     partitions.toArray
   }
 
@@ -191,7 +201,7 @@ case class DolphinDBPartitioner(option: DolphinDBOptions) extends Serializable {
           partFilter: Array[Filter]) : Boolean = {
 
     /**   Get the partiton column type in dolphindb  */
-    val colType = DolphinDBRDD.originNameToType.get(partCol).get.toUpperCase
+    val colType = DolphinDBRDD.originNameToType.get(partCol).get.toString.toUpperCase
 
     var flagPart = false
 //     for (partiVal <- partiVals) {
@@ -1517,7 +1527,7 @@ case class DolphinDBPartitioner(option: DolphinDBOptions) extends Serializable {
                  val partSecInt1 = Utils.countSeconds(LocalTime.parse(partiVals(1)))
                  if (partSecInt0 == partSecInt1 && partSecInt0 == userSecInt) typeFlag = true
                  else if ((partSecInt0 <= userSecInt && userSecInt < partSecInt1) ||
-                   partSecInt1 <= userSecInt && userSecInt < partSecInt0) typeFlag = true
+                   (partSecInt1 <= userSecInt && userSecInt < partSecInt0)) typeFlag = true
                } else {
                  val partSecInt = Utils.countSeconds(LocalTime.parse(partiVals(0)))
                  if (partSecInt == userSecInt) typeFlag = true
@@ -1545,7 +1555,7 @@ case class DolphinDBPartitioner(option: DolphinDBOptions) extends Serializable {
                } else if (partiType == 2) {
                  val partSecInt0 = Utils.countSeconds(LocalTime.parse(partiVals(0)))
                  val partSecInt1 = Utils.countSeconds(LocalTime.parse(partiVals(1)))
-                 if ((partSecInt0 < userSecInt && partSecInt1 < userSecInt)) typeFlag = true
+                 if ((partSecInt0 < userSecInt || partSecInt1 < userSecInt)) typeFlag = true
                } else {
                  val partSecInt = Utils.countSeconds(LocalTime.parse(partiVals(0)))
                  if (partSecInt < userSecInt) typeFlag = true
@@ -1572,7 +1582,7 @@ case class DolphinDBPartitioner(option: DolphinDBOptions) extends Serializable {
                } else if (partiType == 2) {
                  val partSecInt0 = Utils.countSeconds(LocalTime.parse(partiVals(0)))
                  val partSecInt1 = Utils.countSeconds(LocalTime.parse(partiVals(1)))
-                 if ((partSecInt0 > userSecInt && partSecInt1 > userSecInt)) typeFlag = true
+                 if ((partSecInt0 > userSecInt || partSecInt1 > userSecInt)) typeFlag = true
                } else {
                  val partSecInt = Utils.countSeconds(LocalTime.parse(partiVals(0)))
                  if (partSecInt > userSecInt) typeFlag = true
@@ -1599,7 +1609,7 @@ case class DolphinDBPartitioner(option: DolphinDBOptions) extends Serializable {
                } else if (partiType == 2) {
                  val partSecInt0 = Utils.countSeconds(LocalTime.parse(partiVals(0)))
                  val partSecInt1 = Utils.countSeconds(LocalTime.parse(partiVals(1)))
-                 if ((partSecInt0 <= userSecInt && partSecInt1 <= userSecInt)) typeFlag = true
+                 if ((partSecInt0 <= userSecInt || partSecInt1 <= userSecInt)) typeFlag = true
                } else {
                  val partSecInt = Utils.countSeconds(LocalTime.parse(partiVals(0)))
                  if (partSecInt <= userSecInt) typeFlag = true
@@ -1627,7 +1637,7 @@ case class DolphinDBPartitioner(option: DolphinDBOptions) extends Serializable {
                } else if (partiType == 2) {
                  val partSecInt0 = Utils.countSeconds(LocalTime.parse(partiVals(0)))
                  val partSecInt1 = Utils.countSeconds(LocalTime.parse(partiVals(1)))
-                 if ((partSecInt0 >= userSecInt && partSecInt1 >= userSecInt)) typeFlag = true
+                 if ((partSecInt0 >= userSecInt || partSecInt1 >= userSecInt)) typeFlag = true
                } else {
                  val partSecInt = Utils.countSeconds(LocalTime.parse(partiVals(0)))
                  if (partSecInt >= userSecInt) typeFlag = true
@@ -1659,7 +1669,7 @@ case class DolphinDBPartitioner(option: DolphinDBOptions) extends Serializable {
                    val partSecInt1 = Utils.countSeconds(LocalTime.parse(partiVals(1)))
                    if (partSecInt0 == partSecInt1 && partSecInt0 == userSecInt) typeFlag = true
                    else if ((partSecInt0 <= userSecInt && userSecInt < partSecInt1) ||
-                     partSecInt1 <= userSecInt && userSecInt < partSecInt0) typeFlag = true
+                     (partSecInt1 <= userSecInt && userSecInt < partSecInt0)) typeFlag = true
                  } else {
                    val partSecInt = Utils.countSeconds(LocalTime.parse(partiVals(0)))
                    if (partSecInt == userSecInt) typeFlag = true
@@ -1714,7 +1724,7 @@ case class DolphinDBPartitioner(option: DolphinDBOptions) extends Serializable {
                    "T" + partiVals(1).split("[ T]")(1)))
                  if (partDTInt0 == partDTInt1 && partDTInt0 == userDTInt) typeFlag = true
                  else if ((partDTInt0 <= userDTInt && userDTInt < partDTInt1) ||
-                   partDTInt1 <= userDTInt && userDTInt < partDTInt0) typeFlag = true
+                   (partDTInt1 <= userDTInt && userDTInt < partDTInt0)) typeFlag = true
                } else {
                  val partDTInt = Utils.countSeconds(LocalDateTime.parse(partiVals(0).split("[ T]")(0).replace(".", "-") +
                    "T" + partiVals(0).split("[ T]")(1)))
@@ -1876,7 +1886,7 @@ case class DolphinDBPartitioner(option: DolphinDBOptions) extends Serializable {
                      "T" + partiVals(1).split("[ T]")(1)))
                    if (partDTInt0 == partDTInt1 && partDTInt0 == userDTInt) typeFlag = true
                    else if ((partDTInt0 <= userDTInt && userDTInt < partDTInt1) ||
-                     partDTInt1 <= userDTInt && userDTInt < partDTInt0) typeFlag = true
+                     (partDTInt1 <= userDTInt && userDTInt < partDTInt0)) typeFlag = true
                  } else {
                    val partDTInt = Utils.countSeconds(LocalDateTime.parse(partiVals(0).split("[ T]")(0).replace(".", "-") +
                      "T" + partiVals(0).split("[ T]")(1)))
@@ -1932,7 +1942,7 @@ case class DolphinDBPartitioner(option: DolphinDBOptions) extends Serializable {
                    "T" + partiVals(1).split("[ T]")(1)))
                  if (partTMInt0 == partTMInt1 && partTMInt0 == userTMInt) typeFlag = true
                  else if ((partTMInt0 <= userTMInt && userTMInt < partTMInt1) ||
-                   partTMInt1 <= userTMInt && userTMInt < partTMInt0) typeFlag = true
+                   (partTMInt1 <= userTMInt && userTMInt < partTMInt0)) typeFlag = true
                } else {
                  val partTMInt = Utils.countMilliseconds(LocalDateTime.parse(partiVals(0).split("[ T]")(0).replace(".", "-") +
                    "T" + partiVals(0).split("[ T]")(1)))
@@ -2098,7 +2108,7 @@ case class DolphinDBPartitioner(option: DolphinDBOptions) extends Serializable {
                      "T" + partiVals(1).split("[ T]")(1)))
                    if (partTMInt0 == partTMInt1 && partTMInt0 == userTMInt) typeFlag = true
                    else if ((partTMInt0 <= userTMInt && userTMInt < partTMInt1) ||
-                     partTMInt1 <= userTMInt && userTMInt < partTMInt0) typeFlag = true
+                     (partTMInt1 <= userTMInt && userTMInt < partTMInt0)) typeFlag = true
                  } else {
                    val partTMInt = Utils.countMilliseconds(LocalDateTime.parse(partiVals(0).split("[ T]")(0).replace(".", "-") +
                      "T" + partiVals(0).split("[ T]")(1)))
@@ -2151,7 +2161,7 @@ case class DolphinDBPartitioner(option: DolphinDBOptions) extends Serializable {
                  val partNTLong1 = Utils.countNanoseconds(LocalTime.parse(partiVals(1)))
                  if (partNTLong0 == partNTLong1 && partNTLong0 == userNTLong) typeFlag = true
                  else if ((partNTLong0 <= userNTLong && userNTLong < partNTLong1) ||
-                   partNTLong1 <= userNTLong && userNTLong < partNTLong0) typeFlag = true
+                   (partNTLong1 <= userNTLong && userNTLong < partNTLong0)) typeFlag = true
                } else {
                  val partTMInt = Utils.countNanoseconds(LocalTime.parse(partiVals(0)))
                  if (partTMInt == userNTLong) typeFlag = true
@@ -2297,7 +2307,7 @@ case class DolphinDBPartitioner(option: DolphinDBOptions) extends Serializable {
                    val partNTLong1 = Utils.countNanoseconds(LocalTime.parse(partiVals(1)))
                    if (partNTLong0 == partNTLong1 && partNTLong0 == userNTLong) typeFlag = true
                    else if ((partNTLong0 <= userNTLong && userNTLong < partNTLong1) ||
-                     partNTLong1 <= userNTLong && userNTLong < partNTLong0) typeFlag = true
+                     (partNTLong1 <= userNTLong && userNTLong < partNTLong0)) typeFlag = true
                  } else {
                    val partTMInt = Utils.countNanoseconds(LocalTime.parse(partiVals(0)))
                    if (partTMInt == userNTLong) typeFlag = true
@@ -2352,7 +2362,7 @@ case class DolphinDBPartitioner(option: DolphinDBOptions) extends Serializable {
                    "T" + partiVals(1).split("[ T]")(1)))
                  if (partNTSLong0 == partNTSLong1 && partNTSLong0 == userNTSLong) typeFlag = true
                  else if ((partNTSLong0 <= userNTSLong && userNTSLong < partNTSLong1) ||
-                   partNTSLong1 <= userNTSLong && userNTSLong < partNTSLong0) typeFlag = true
+                   (partNTSLong1 <= userNTSLong && userNTSLong < partNTSLong0)) typeFlag = true
                } else {
                  val partNTSLong = Utils.countNanoseconds(LocalDateTime.parse(partiVals(0).split("[ T]")(0).replace(".", "-") +
                    "T" + partiVals(0).split("[ T]")(1)))
@@ -2518,7 +2528,7 @@ case class DolphinDBPartitioner(option: DolphinDBOptions) extends Serializable {
                      "T" + partiVals(1).split("[ T]")(1)))
                    if (partNTSLong0 == partNTSLong1 && partNTSLong0 == userNTSLong) typeFlag = true
                    else if ((partNTSLong0 <= userNTSLong && userNTSLong < partNTSLong1) ||
-                     partNTSLong1 <= userNTSLong && userNTSLong < partNTSLong0) typeFlag = true
+                     (partNTSLong1 <= userNTSLong && userNTSLong < partNTSLong0)) typeFlag = true
                  } else {
                    val partNTSLong = Utils.countNanoseconds(LocalDateTime.parse(partiVals(0).split("[ T]")(0).replace(".", "-") +
                      "T" + partiVals(0).split("[ T]")(1)))
@@ -2565,7 +2575,7 @@ case class DolphinDBPartitioner(option: DolphinDBOptions) extends Serializable {
                  val partDInt1 = Utils.countDays(LocalDate.parse(partiVals(1).replace(".", "-")))
                  if (partDInt0 == partDInt1 && partDInt0 == userDInt) typeFlag = true
                  else if ((partDInt0 <= userDInt && userDInt < partDInt1) ||
-                   partDInt1 <= userDInt && userDInt < partDInt0) typeFlag = true
+                   (partDInt1 <= userDInt && userDInt < partDInt0)) typeFlag = true
                } else {
                  val partDInt = Utils.countDays(LocalDate.parse(partiVals(0).replace(".", "-")))
                  if (partDInt == userDInt) typeFlag = true
@@ -2679,7 +2689,7 @@ case class DolphinDBPartitioner(option: DolphinDBOptions) extends Serializable {
                    val partDInt1 = Utils.countDays(LocalDate.parse(partiVals(1).replace(".", "-")))
                    if (partDInt0 == partDInt1 && partDInt0 == userDInt) typeFlag = true
                    else if ((partDInt0 <= userDInt && userDInt < partDInt1) ||
-                     partDInt1 <= userDInt && userDInt < partDInt0) typeFlag = true
+                     (partDInt1 <= userDInt && userDInt < partDInt0)) typeFlag = true
                  } else {
                    val partDInt = Utils.countDays(LocalDate.parse(partiVals(0).replace(".", "-")))
                    if (partDInt == userDInt) typeFlag = true

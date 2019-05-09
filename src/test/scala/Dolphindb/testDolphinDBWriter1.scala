@@ -14,7 +14,7 @@ object testDolphinDBWriter1 {
       .getOrCreate()
 
     val sd = spark.read.format("com.dolphindb.spark.DolphinDBProvider")
-      .option("ip", "115.239.209.224")
+      .option("ip", "192.168.1.13")
       .option("port", 16961)
       .option("user", "admin")
       .option("password", "123456")
@@ -33,11 +33,11 @@ object testDolphinDBWriter1 {
 
 
 //    println(frame.collect().length)
-//    frame.show()
+    frame.show()
 
 
     frame.write.format("com.dolphindb.spark.DolphinDBProvider")
-      .option("ip", "115.239.209.224")
+      .option("ip", "192.168.1.13")
       .option("port", 16961)
       .option("user", "admin")
       .option("password", "123456")

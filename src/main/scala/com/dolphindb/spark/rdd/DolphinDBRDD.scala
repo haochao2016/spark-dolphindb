@@ -161,6 +161,7 @@ object DolphinDBRDD extends Logging {
      val oriType = DolphinDBRDD.originNameToType.get(colName).get
 //      oriType is a type in DolphinDB
       oriType match {
+
         case "SYMBOL" => s""""${value.toString}""""
         case "STRING" => s""""${value.toString}""""
         case "DATE" => {
@@ -174,16 +175,16 @@ object DolphinDBRDD extends Logging {
         }
         case "TIME" => {
           val timeval = value.toString.split(" ")(1)
-          if( timeval.contains(".") && timeval.split(".")(1).length == 1) {
-            timeval.split(".")(0)
+          if( timeval.contains(".") && timeval.split("\\.")(1).length == 1) {
+            timeval.split("\\.")(0)
           } else timeval
         }
         case "MINUTE" => {
           val minute = value.toString.split(" ")(1)
           minute.substring(0, minute.lastIndexOf(":")) + "m"
         }
-        case "SECOND" => value.toString.split(" ")(1).split(".")(0)
-        case "DATETIME" => value.toString.split(".")(0)
+        case "SECOND" => value.toString.split(" ")(1).split("\\.")(0)
+        case "DATETIME" => value.toString.split("\\.")(0)
         case "TIMESTAMP" => value.toString
         case "NANOTIME" => value.toString.split(" ")(1)
         case "NANOTIMESTAMP" => value.toString
@@ -297,7 +298,7 @@ private[spark] class DolphinDBRDD(
     val partCondition = new mutable.StringBuilder("")
     /**  Add partition condition    */
     if (part.partiCols != null) {
-      for (i <- 0 until(part.partiCols.length)) {
+      for (i <- 0 until(part.partiVals.length)) {
         val colType = DolphinDBRDD.originNameToType.get(part.partiCols(i)).get.toUpperCase()
         partCondition.append(part.partiCols(i))
 
@@ -381,13 +382,17 @@ private[spark] class DolphinDBRDD(
       conn.connect(hostAddress, ports(Random.nextInt(ports.size)) ,user, password)
     } else {
       val keyArr = part.hosts.keySet.toArray
-      val newHost = keyArr(Random.nextInt(keyArr.length))
-      if (newHost.contains(ip.substring(0, ip.lastIndexOf(".")))) {
-        /**  n the same network segment    */
-        val ports = part.hosts.get(newHost).get
-        conn.connect(newHost, ports(Random.nextInt(ports.size)) ,user, password)
-      } else {
+      if (keyArr.length == 0) {
         conn.connect(ip, port,user, password)
+      } else {
+        val newHost = keyArr(Random.nextInt(keyArr.length))
+        if (newHost.contains(ip.substring(0, ip.lastIndexOf(".")))) {
+          /**  n the same network segment    */
+          val ports = part.hosts.get(newHost).get
+          conn.connect(newHost, ports(Random.nextInt(ports.size)) ,user, password)
+        } else {
+          conn.connect(ip, port,user, password)
+        }
       }
     }
 
