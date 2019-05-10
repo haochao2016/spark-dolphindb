@@ -1,9 +1,6 @@
 package Dolphindb
 
-import com.sequoiadb.hadoop.io.BSONWritable
-import org.apache.hadoop.io.NullWritable
 import org.apache.spark.sql.SparkSession
-import org.bson.BasicBSONObject
 
 object testDolphinDBWriter {
 
