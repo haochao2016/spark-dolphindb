@@ -3,6 +3,7 @@ package com.dolphindb.spark.rdd
 
 import java.net.InetAddress
 
+import com.dolphindb.spark.DolphinDBUtils
 import com.dolphindb.spark.exception.NoDataBaseException
 import com.dolphindb.spark.partition.DolphinDBPartition
 import com.dolphindb.spark.schema.{DolphinDBDialects, DolphinDBOptions, DolphinDBSchema}
@@ -158,7 +159,7 @@ object DolphinDBRDD extends Logging {
   def compilerFilter(f : Filter) : Option[String] ={
 
     def typeCol (colName : String, value : Any) : String = {
-     val oriType = DolphinDBRDD.originNameToType.get(colName).get
+     val oriType = DolphinDBRDD.originNameToType.get(colName).get.toUpperCase
 //      oriType is a type in DolphinDB
       oriType match {
 
@@ -188,6 +189,7 @@ object DolphinDBRDD extends Logging {
         case "TIMESTAMP" => value.toString
         case "NANOTIME" => value.toString.split(" ")(1)
         case "NANOTIMESTAMP" => value.toString
+        case "FLOAT" => value.toString + "f"
         case "CHAR" => value.toString.charAt(0).toByte.toString
         case _ => value.toString
       }
@@ -318,15 +320,39 @@ private[spark] class DolphinDBRDD(
                   partCondition.append(" and "+ part.partiCols(i) +"< \"" + part.partiVals(i)(0) + "\"")
                 }
               }
+            } else if (colType.equals("DOUBLE") || colType.equals("FLOAT")) {
+              if (colType.equals("DOUBLE")) {
+                if (DolphinDBUtils.getDoubleValue(colType, part.partiVals(i)(0)) == DolphinDBUtils.getDoubleValue(colType, part.partiVals(i)(1))) partCondition.append(" = " + part.partiVals(i)(0))
+                else {
+                  if (DolphinDBUtils.getDoubleValue(colType, part.partiVals(i)(0)) < DolphinDBUtils.getDoubleValue(colType, part.partiVals(i)(1))){
+                    partCondition.append(" >= " + part.partiVals(i)(0))
+                    partCondition.append(" and "+ part.partiCols(i) +" < " + part.partiVals(i)(1))
+                  } else {
+                    partCondition.append(" >= " + part.partiVals(i)(1))
+                    partCondition.append(" and "+ part.partiCols(i) +" < " + part.partiVals(i)(0))
+                  }
+                }
+              } else {
+                if (DolphinDBUtils.getDoubleValue(colType, part.partiVals(i)(0)) == DolphinDBUtils.getDoubleValue(colType, part.partiVals(i)(1))) partCondition.append(" = " + part.partiVals(i)(0))
+                else {
+                  if (DolphinDBUtils.getDoubleValue(colType, part.partiVals(i)(0)) < DolphinDBUtils.getDoubleValue(colType, part.partiVals(i)(1))){
+                    partCondition.append(" >= " + part.partiVals(i)(0) + "f")
+                    partCondition.append(" and "+ part.partiCols(i) +" < " + part.partiVals(i)(1)+ "f")
+                  } else {
+                    partCondition.append(" >= " + part.partiVals(i)(1)+ "f")
+                    partCondition.append(" and "+ part.partiCols(i) +" < " + part.partiVals(i)(0)+ "f")
+                  }
+                }
+              }
             } else {
-              if (part.partiVals(i)(0).toLong == part.partiVals(i)(1).toLong) partCondition.append(" = " + part.partiVals(i)(0))
+              if (DolphinDBUtils.getLongValue(colType, part.partiVals(i)(0)) == DolphinDBUtils.getLongValue(colType, part.partiVals(i)(1))) partCondition.append(" = " + part.partiVals(i)(0))
               else {
-                if (part.partiVals(i)(0).toLong < part.partiVals(i)(1).toLong){
-                  partCondition.append(" >= " + part.partiVals(i)(0).toLong)
-                  partCondition.append(" and "+ part.partiCols(i) +"< " + part.partiVals(i)(1).toLong)
+                if (DolphinDBUtils.getLongValue(colType, part.partiVals(i)(0)) < DolphinDBUtils.getLongValue(colType, part.partiVals(i)(1))){
+                  partCondition.append(" >= " + part.partiVals(i)(0))
+                  partCondition.append(" and "+ part.partiCols(i) +" < " + part.partiVals(i)(1))
                 } else {
-                  partCondition.append(" >= " + part.partiVals(i)(1).toLong)
-                  partCondition.append(" and "+ part.partiCols(i) +"< " + part.partiVals(i)(0).toLong)
+                  partCondition.append(" >= " + part.partiVals(i)(1))
+                  partCondition.append(" and "+ part.partiCols(i) +" < " + part.partiVals(i)(0))
                 }
               }
             }
