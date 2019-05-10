@@ -1,9 +1,11 @@
 package com.dolphindb.spark
 
+import java.time.{LocalDate, LocalDateTime, LocalTime}
+
 import com.dolphindb.spark.exception.NoDataBaseException
 import com.dolphindb.spark.schema.DolphinDBOptions
 import com.xxdb.DBConnection
-import com.xxdb.data.BasicTable
+import com.xxdb.data.{BasicTable, Utils}
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.catalyst.analysis.Resolver
 import org.apache.spark.sql.catalyst.parser.CatalystSqlParser
@@ -108,4 +110,60 @@ object DolphinDBUtils extends Logging{
     dolphinDBName2Type.toArray
   }
 
+
+  /**
+    * case DolphinDB type return value after compute
+    * @return
+    */
+  def getLongValue (colType : String, colVal : String) : Long = colType match {
+    case "DATE" =>
+      Utils.countDays(LocalDate.parse(colVal.replace(".", "-")))
+    case "MONTH" =>
+      val monthStr = colVal.replace("M", "").split("\\.")
+      Utils.countMonths(monthStr(0).toInt, monthStr(1).toInt)
+    case "TIME" =>
+      Utils.countMilliseconds(LocalTime.parse(colVal))
+    case "MINUTE" =>
+      val minute = colVal.replace("m", "")
+      Utils.countMinutes(minute.split(":")(0).toInt, minute.split(":")(1).toInt)
+    case "SECOND" =>
+      Utils.countSeconds(LocalTime.parse(colVal))
+    case "DATETIME" =>
+      var datetimestr = colVal.replace(".", "-")
+      if (datetimestr.contains(" ")) {
+        datetimestr = datetimestr.replace(" ", "T")
+      }
+      Utils.countSeconds(LocalDateTime.parse(datetimestr))
+    case "TIMESTAMP" =>
+      val colValTmp = if (colVal.contains(" ")) colVal.replace(" ", "T") else colVal
+      val colArr = colValTmp.split("T")
+      Utils.countMilliseconds(LocalDateTime.parse(colArr(0).replace(".", "-") + "T" + colArr(1)))
+    case "NANOTIME" =>
+      Utils.countNanoseconds(LocalTime.parse(colVal))
+    case "NANOTIMESTAMP" =>
+      val colValTmp = if (colVal.contains(" ")) colVal.replace(" ", "T") else colVal
+      val colArr = colValTmp.split("T")
+      Utils.countMilliseconds(LocalDateTime.parse(colArr(0).replace(".", "-") + "T" + colArr(1)))
+    case "VOID" =>
+      null
+    case "BOOL" =>
+      if ((!java.lang.Boolean.parseBoolean(colVal)) || 0 == colVal.toInt) 0.toByte else 1.toByte
+    case "LONG" => colVal.toLong
+    case "INT" => colVal.toLong
+    case "SHORT" => colVal.toLong
+    case "CHAR" => colVal.charAt(0).toByte
+    case _ => 0
+  }
+
+  /**
+    * case DolphinDB type return value after compute
+    * @param colType
+    * @param colVal
+    * @return
+    */
+  def getDoubleValue (colType : String, colVal : String) : Double = colType match {
+    case "DOUBLE" => colVal.toDouble
+    case "FLOAT" => colVal.toFloat
+    case _ => 0
+  }
 }
