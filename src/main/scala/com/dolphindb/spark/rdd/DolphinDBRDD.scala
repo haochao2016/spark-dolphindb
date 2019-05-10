@@ -332,12 +332,12 @@ private[spark] class DolphinDBRDD(
             }
           } else if (part.partiTypes(i) == 3) {   /**  DolphinDB partititon type is List    */
             partCondition.append(" in ")
-            val partCIB = new mutable.StringBuilder("( ")
+            val partCIB = new mutable.StringBuilder("([ ")
             for (partCI <- part.partiVals(i)){
               if (colType.equals("STRING") || colType.equals("SYMBOL")) partCIB.append( "\""+ partCI + "\"" + ",")
               else partCIB.append(partCI + ",")
             }
-            partCondition.append(partCIB.substring(0, partCIB.length - 1) + ")")
+            partCondition.append(partCIB.substring(0, partCIB.length - 1) + "])")
           }
         } else {
           partCondition.append(" = ")
