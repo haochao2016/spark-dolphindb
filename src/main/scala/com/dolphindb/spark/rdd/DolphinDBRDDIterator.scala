@@ -122,7 +122,7 @@ class DolphinDBRDDIterator(
     case FloatType => if(fieldVal.equals("")) null else fieldVal.toFloat
     case LongType => if(fieldVal.equals("")) null else fieldVal.toLong
     case ShortType => if(fieldVal.equals("")) null else  fieldVal.toShort
-    case ByteType => if(fieldVal.equals("")) null else fieldVal.charAt(0).toByte
+    case ByteType => if(fieldVal.equals("")) null else fieldVal.toByte
     case _ => if(fieldVal.equals("")) null else fieldVal
   }
 

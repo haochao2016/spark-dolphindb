@@ -129,7 +129,7 @@ object DolphinDBSchema extends Logging{
     case "LONG" => StructField(originName, LongType)
     case "INT" => StructField(originName, IntegerType)
     case "SHORT" => StructField(originName, ShortType)
-    case "CHAR" => StructField(originName, ByteType)
+    case "CHAR" => StructField(originName, StringType)
     case _ => StructField(originName, StringType)
   }
 

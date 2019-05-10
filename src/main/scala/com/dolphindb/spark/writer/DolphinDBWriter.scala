@@ -147,7 +147,7 @@ class DolphinDBWriter(options: DolphinDBOptions) extends Logging{
                row(i).toString.toShort
            case "CHAR" =>
              dataBuffer(i).asInstanceOf[ArrayBuffer[Byte]] +=
-               row(i).toString.toByte
+               row(i).toString.charAt(0).toByte
            case _ =>
              dataBuffer(i).asInstanceOf[ArrayBuffer[String]] += row(i).toString
          }
