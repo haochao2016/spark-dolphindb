@@ -145,7 +145,7 @@ object DolphinDBUtils extends Logging{
       val colArr = colValTmp.split("T")
       Utils.countMilliseconds(LocalDateTime.parse(colArr(0).replace(".", "-") + "T" + colArr(1)))
     case "VOID" =>
-      null
+      0
     case "BOOL" =>
       if ((!java.lang.Boolean.parseBoolean(colVal)) || 0 == colVal.toInt) 0.toByte else 1.toByte
     case "LONG" => colVal.toLong
@@ -164,6 +164,6 @@ object DolphinDBUtils extends Logging{
   def getDoubleValue (colType : String, colVal : String) : Double = colType match {
     case "DOUBLE" => colVal.toDouble
     case "FLOAT" => colVal.toFloat
-    case _ => 0
+    case _ => 0.0
   }
 }
