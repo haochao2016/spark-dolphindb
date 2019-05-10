@@ -526,12 +526,12 @@ case class DolphinDBPartitioner(option: DolphinDBOptions) extends Serializable {
                      typeFlag = true
                    })
                  } else if (partiType == 2) {
-                   if ((partiVals(0).toLong <= value.toString.toLong && value.toString.toLong <= partiVals(1).toLong) ||
-                     (partiVals(1).toLong <= value.toString.toLong && value.toString.toLong <= partiVals(0).toLong)) {
+                   if ((partiVals(0).toLong <= v.toString.toLong && v.toString.toLong <= partiVals(1).toLong) ||
+                     (partiVals(1).toLong <= v.toString.toLong && v.toString.toLong <= partiVals(0).toLong)) {
                      typeFlag = true
                    }
                  } else {
-                   if (partiVals(0).toLong == value.toString.toLong) typeFlag = true
+                   if (partiVals(0).toLong == v.toString.toLong) typeFlag = true
                  }
                })
                if (attr.equalsIgnoreCase(partCol) && typeFlag) {
@@ -809,12 +809,12 @@ case class DolphinDBPartitioner(option: DolphinDBOptions) extends Serializable {
                      typeFlag = true
                    })
                  } else if (partiType == 2) {
-                   if ((partiVals(0).toDouble <= value.toString.toDouble && value.toString.toDouble <= partiVals(1).toDouble) ||
-                     (partiVals(1).toDouble <= value.toString.toDouble && value.toString.toDouble <= partiVals(0).toDouble)) {
+                   if ((partiVals(0).toDouble <= v.toString.toDouble && v.toString.toDouble <= partiVals(1).toDouble) ||
+                     (partiVals(1).toDouble <= v.toString.toDouble && v.toString.toDouble <= partiVals(0).toDouble)) {
                      typeFlag = true
                    }
                  } else {
-                   if (partiVals(0).toDouble == value.toString.toDouble) typeFlag = true
+                   if (partiVals(0).toDouble == v.toString.toDouble) typeFlag = true
                  }
                })
                if (attr.equalsIgnoreCase(partCol) && typeFlag) {
@@ -2292,7 +2292,7 @@ case class DolphinDBPartitioner(option: DolphinDBOptions) extends Serializable {
                var typeFlag = false
                value.foreach(v => {
                  var userNT: String = null
-                 if (v.toString.contains(" ") || value.toString.contains("T")) {
+                 if (v.toString.contains(" ") || v.toString.contains("T")) {
                    userNT = v.toString.split("[ T]")(1)
                  }
                  else userNT = v.toString
@@ -2678,7 +2678,7 @@ case class DolphinDBPartitioner(option: DolphinDBOptions) extends Serializable {
              if (attr.equalsIgnoreCase(partCol)) {
                var typeFlag = false
                value.foreach(v => {
-                 val userDInt = Utils.countDays(LocalDate.parse(value.toString))
+                 val userDInt = Utils.countDays(LocalDate.parse(v.toString))
                  if (partiType == 3) {
                    partiVals.foreach(pv => {
                      val partDInt = Utils.countDays(LocalDate.parse(pv.replace(".", "-")))

@@ -142,6 +142,7 @@ object DolphinDBRDD extends Logging {
 
       }
       schemaOrigin = StructType(StructArr)
+      conn.close()
       schemaOrigin
     }
 
@@ -162,9 +163,16 @@ object DolphinDBRDD extends Logging {
      val oriType = DolphinDBRDD.originNameToType.get(colName).get.toUpperCase
 //      oriType is a type in DolphinDB
       oriType match {
-
-        case "SYMBOL" => s""""${value.toString}""""
-        case "STRING" => s""""${value.toString}""""
+        case "SYMBOL" =>
+          if (value.toString.contains("\"")) s""""${value.toString.replace("\"", "\\\"")}""""
+          else if (value.toString.contains("\'")) s""""${value.toString.replace("\'", "\\\'")}""""
+          else if (value.toString.contains("\\")) s""""${value.toString.replace("\\", "\\\\")}""""
+          else s""""${value.toString}""""
+        case "STRING" =>
+          if (value.toString.contains("\"")) s""""${value.toString.replace("\"", "\\\"")}""""
+          else if (value.toString.contains("\'")) s""""${value.toString.replace("\'", "\\\'")}""""
+          else if (value.toString.contains("\\")) s""""${value.toString.replace("\\", "\\\\")}""""
+          else  s""""${value.toString}""""
         case "DATE" => {
           if (value.toString.contains("-")) value.toString.replace("-", ".")
           else value.toString
@@ -189,8 +197,8 @@ object DolphinDBRDD extends Logging {
         case "TIMESTAMP" => value.toString
         case "NANOTIME" => value.toString.split(" ")(1)
         case "NANOTIMESTAMP" => value.toString
-        case "FLOAT" => value.toString + "f"
-        case "CHAR" => value.toString.charAt(0).toByte.toString
+//        case "FLOAT" => value.toString + "f"
+        case "CHAR" => value.toString.charAt(0).toString//.toByte.toString
         case _ => value.toString
       }
     }
@@ -210,7 +218,7 @@ object DolphinDBRDD extends Logging {
       case Not(f) => compilerFilter(f).map(p => s" not($p) ").get
       case Or(f1, f2) =>
         val orf = Seq(f1, f2).flatMap(compilerFilter(_))
-        orf.map(p => s" (${p}) ").mkString(" or ")
+        "(" + orf.map(p => s" (${p}) ").mkString(" or ") + ")"
       case And(f1, f2) =>
         val andf = Seq(f1, f2).flatMap(compilerFilter(_))
         andf.map(p => s"${p}").mkString(" and ")
@@ -321,7 +329,7 @@ private[spark] class DolphinDBRDD(
                 }
               }
             } else if (colType.equals("DOUBLE") || colType.equals("FLOAT")) {
-              if (colType.equals("DOUBLE")) {
+//              if (colType.equals("DOUBLE")) {
                 if (DolphinDBUtils.getDoubleValue(colType, part.partiVals(i)(0)) == DolphinDBUtils.getDoubleValue(colType, part.partiVals(i)(1))) partCondition.append(" = " + part.partiVals(i)(0))
                 else {
                   if (DolphinDBUtils.getDoubleValue(colType, part.partiVals(i)(0)) < DolphinDBUtils.getDoubleValue(colType, part.partiVals(i)(1))){
@@ -332,7 +340,7 @@ private[spark] class DolphinDBRDD(
                     partCondition.append(" and "+ part.partiCols(i) +" < " + part.partiVals(i)(0))
                   }
                 }
-              } else {
+              /*} else {
                 if (DolphinDBUtils.getDoubleValue(colType, part.partiVals(i)(0)) == DolphinDBUtils.getDoubleValue(colType, part.partiVals(i)(1))) partCondition.append(" = " + part.partiVals(i)(0))
                 else {
                   if (DolphinDBUtils.getDoubleValue(colType, part.partiVals(i)(0)) < DolphinDBUtils.getDoubleValue(colType, part.partiVals(i)(1))){
@@ -343,7 +351,7 @@ private[spark] class DolphinDBRDD(
                     partCondition.append(" and "+ part.partiCols(i) +" < " + part.partiVals(i)(0)+ "f")
                   }
                 }
-              }
+              }*/
             } else {
               if (DolphinDBUtils.getLongValue(colType, part.partiVals(i)(0)) == DolphinDBUtils.getLongValue(colType, part.partiVals(i)(1))) partCondition.append(" = " + part.partiVals(i)(0))
               else {

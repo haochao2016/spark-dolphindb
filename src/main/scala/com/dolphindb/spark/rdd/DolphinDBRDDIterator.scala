@@ -59,21 +59,23 @@ class DolphinDBRDDIterator(
 
     case DateType => {
       fieldOriginType match {
-        case "DATE" => Date.valueOf(fieldVal.replace(".", "-"))
+        case "DATE" => if (fieldVal.equals("")) null else Date.valueOf(fieldVal.replace(".", "-"))
         case "MONTH" =>
-          Date.valueOf(fieldVal.replace("M", ".01")
+          if (fieldVal.equals("")) null else
+            Date.valueOf(fieldVal.replace("M", ".01")
             .replace(".", "-"))
       }
     }
     case TimestampType => {
       fieldOriginType match {
         case "TIME" =>
-          Timestamp.valueOf("1970-01-01 " + fieldVal.toString)
+          if (fieldVal.equals("")) null else Timestamp.valueOf("1970-01-01 " + fieldVal.toString)
         case "MINUTE" =>
-          Timestamp.valueOf("1970-01-01 " + fieldVal.replace("m", ":01"))
+          if (fieldVal.equals("")) null else Timestamp.valueOf("1970-01-01 " + fieldVal.replace("m", ":01"))
         case "SECOND" =>
-          Timestamp.valueOf("1970-01-01 " + fieldVal.toString)
+          if (fieldVal.equals("")) null else Timestamp.valueOf("1970-01-01 " + fieldVal.toString)
         case "DATETIME" =>
+          if (fieldVal.equals("")) return null
           var fieldDTVal : String = null
           if (fieldVal.contains("T")) {
             fieldDTVal = fieldVal.split("T")(0).replace(".", "-") +
@@ -84,6 +86,7 @@ class DolphinDBRDDIterator(
           }
           Timestamp.valueOf(fieldDTVal)
         case "TIMESTAMP" =>
+          if (fieldVal.equals("")) return null
           var fieldTMVal : String = null
           if (fieldVal.contains("T")) {
             fieldTMVal = fieldVal.split("T")(0).replace(".", "-") +
@@ -94,30 +97,33 @@ class DolphinDBRDDIterator(
           }
           Timestamp.valueOf(fieldTMVal)
         case "NANOTIME" =>
-          Timestamp.valueOf("1970-01-01 " + fieldVal.toString)
+          if(fieldVal.equals("")) null else Timestamp.valueOf("1970-01-01 " + fieldVal.toString)
         case "NANOTIMESTAMP" =>
           var fieldNTMVal : String = null
-          if (fieldVal.contains("T")) {
-            fieldNTMVal = fieldVal.split("T")(0).replace(".", "-") +
-              " " + fieldVal.split("T")(1)
+          if(fieldVal.equals("")) {null
           } else {
-            fieldNTMVal = fieldVal.split(" ")(0).replace(".", "-") +
-              " " + fieldVal.split(" ")(1)
+            if (fieldVal.contains("T")) {
+              fieldNTMVal = fieldVal.split("T")(0).replace(".", "-") +
+                " " + fieldVal.split("T")(1)
+            } else {
+              fieldNTMVal = fieldVal.split(" ")(0).replace(".", "-") +
+                " " + fieldVal.split(" ")(1)
+            }
+            Timestamp.valueOf(fieldNTMVal)
           }
-          Timestamp.valueOf(fieldNTMVal)
-        case _ => fieldVal
+        case _ => if(fieldVal.equals("")) null else fieldVal
       }
     }
-    case StringType => fieldVal.toString
-    case IntegerType => fieldVal.toInt
+    case StringType => if(fieldVal.equals("")) null else fieldVal.toString
+    case IntegerType => if(fieldVal.equals("")) null else fieldVal.toInt
     case NullType => null
-    case BooleanType => if (fieldVal.equals("0") || fieldVal.toLowerCase().equals("false")) false else true
-    case DoubleType => fieldVal.toDouble
-    case FloatType => fieldVal.toFloat
-    case LongType => fieldVal.toLong
-    case ShortType => fieldVal.toShort
-    case ByteType => fieldVal.charAt(0).toByte
-    case _ => fieldVal
+    case BooleanType => if(fieldVal.equals("")) null  else {if (fieldVal.equals("0") || fieldVal.toLowerCase().equals("false")) false else true}
+    case DoubleType => if(fieldVal.equals("")) null else fieldVal.toDouble
+    case FloatType => if(fieldVal.equals("")) null else fieldVal.toFloat
+    case LongType => if(fieldVal.equals("")) null else fieldVal.toLong
+    case ShortType => if(fieldVal.equals("")) null else  fieldVal.toShort
+    case ByteType => if(fieldVal.equals("")) null else fieldVal.charAt(0).toByte
+    case _ => if(fieldVal.equals("")) null else fieldVal
   }
 
 
