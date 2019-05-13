@@ -20,14 +20,6 @@ import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
 import scala.util.Random
 
-/**
-  * Data corresponding to one partition of a DolphinDBRDD.
-  * @param whereClause
-  * @param idx
-  */
-//case class DolphinDBPartition(whereClause: String, idx: Int) extends Partition {
-//  override def index: Int = idx
-//}
 
 object DolphinDBRDD extends Logging {
 
@@ -197,7 +189,7 @@ object DolphinDBRDD extends Logging {
         case "TIMESTAMP" => value.toString
         case "NANOTIME" => value.toString.split(" ")(1)
         case "NANOTIMESTAMP" => value.toString
-//        case "FLOAT" => value.toString + "f"
+        case "FLOAT" => value.toString + "f"
         case "CHAR" => value.toString.charAt(0).toString//.toByte.toString
         case _ => value.toString
       }
@@ -329,7 +321,7 @@ private[spark] class DolphinDBRDD(
                 }
               }
             } else if (colType.equals("DOUBLE") || colType.equals("FLOAT")) {
-//              if (colType.equals("DOUBLE")) {
+              if (colType.equals("DOUBLE")) {
                 if (DolphinDBUtils.getDoubleValue(colType, part.partiVals(i)(0)) == DolphinDBUtils.getDoubleValue(colType, part.partiVals(i)(1))) partCondition.append(" = " + part.partiVals(i)(0))
                 else {
                   if (DolphinDBUtils.getDoubleValue(colType, part.partiVals(i)(0)) < DolphinDBUtils.getDoubleValue(colType, part.partiVals(i)(1))){
@@ -340,7 +332,7 @@ private[spark] class DolphinDBRDD(
                     partCondition.append(" and "+ part.partiCols(i) +" < " + part.partiVals(i)(0))
                   }
                 }
-              /*} else {
+              } else {
                 if (DolphinDBUtils.getDoubleValue(colType, part.partiVals(i)(0)) == DolphinDBUtils.getDoubleValue(colType, part.partiVals(i)(1))) partCondition.append(" = " + part.partiVals(i)(0))
                 else {
                   if (DolphinDBUtils.getDoubleValue(colType, part.partiVals(i)(0)) < DolphinDBUtils.getDoubleValue(colType, part.partiVals(i)(1))){
@@ -351,7 +343,7 @@ private[spark] class DolphinDBRDD(
                     partCondition.append(" and "+ part.partiCols(i) +" < " + part.partiVals(i)(0)+ "f")
                   }
                 }
-              }*/
+              }
             } else {
               if (DolphinDBUtils.getLongValue(colType, part.partiVals(i)(0)) == DolphinDBUtils.getLongValue(colType, part.partiVals(i)(1))) partCondition.append(" = " + part.partiVals(i)(0))
               else {
@@ -443,7 +435,7 @@ private[spark] class DolphinDBRDD(
     val myWhereClause = getWhereClause(part)
 
     val sqlText = s"select  $columnList from ${options.table} ${myWhereClause} "
-    logInfo(s"SQL :   ${sqlText}")
+//    logInfo(s"SQL :   ${sqlText}")
     val dolphinDBTable = conn.run(sqlText).asInstanceOf[BasicTable]
 
     new DolphinDBRDDIterator(
