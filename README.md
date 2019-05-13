@@ -1,7 +1,7 @@
 ### 1.Spark-DolphinDB Connector 概述
 
 Spark-DolphinDB Connector 需要运行在Java 1.8 或者以上环境， Scala 2.11或者以上环境。需要使用 
-DolphinDB Java Api https://github.com/dolphindb/api-java/tree/master/bin。
+DolphinDB Java Api https://github.com/dolphindb/api-java 。
 使用Spark-DolphinDB Connector 读取DolphinDB数据库中的数据，需要指定DolphinDB为data source。此版本只提供从DolphinDB中读取数据。
 
 ### 2.DolphinDB与Spark中的数据类型
