@@ -35,7 +35,7 @@ user：登录DolphinDB数据库的用户名，password：登录DolphinDB数据�
 
 ### 3.使用方法
 
-可以使用 IDE 把Spark-DolphinDB Connector 的 spark-dolphindb.jar 与 DolphinDB Java Api 的dolphindb.jar 都打包起来执行。也可以
+可以使用 IDE 把Spark-DolphinDB Connector 的 spark-dolphindb.jar 与 DolphinDB Java Api 的 dolphindb.jar 都打包起来执行。也可以
 提前把 spark-dolphindb.jar 与 dolphindb.jar发送到 $SPARK_HOME/jars 目录下，然后执行程序。
     
 DolphinDB 与Spark 数据类型的不同，具体的数据类型对照参照附录。 需要注意DolphinDB中的时间类型在Spark对应为时间戳，
@@ -56,6 +56,12 @@ DolphinDB 与Spark 数据类型的不同，具体的数据类型对照参照附�
     spark.sql("select col1 from frameTb where isnull(null_val)")
     spark.sql("select col1 from frameTb where float_val = float(3.2)")
  ```
+ 
+### 4. Spark读取DolphinDB性能提升
+
+Spark-DolphinDB Connector 实现了分区修剪，列修剪，谓词下推，数据本地性等优化。为了实现数据本地性，需要了解DolphinDB数据库的设计。
+DolphinDB 是分布式数据库，数据分布存储在不同节点上，为了使数据加载更快。建议使用内网搭建DolphinDB集群与Spark集群，
+在部署 DolphinDB数据节点的机器上部署相应的Spark Slave节点。运行Spark程序可以加载本地的数据，实现数据本地性。建议使用内存大于加载的数据集。
 
 #### 附录：DolphinDB与Spark中的数据类型
 
