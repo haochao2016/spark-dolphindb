@@ -51,7 +51,7 @@ object testDolphinDBReader2 {
 //    val frame = spark.sql( """select count(*) as gap from sd1 where symbol='IBM' and ofr > bid and bid > 0  """ )
 
 //    val frame = spark.sql("""select sum(bid*bidsiz)/sum(bidsiz) as vwab from sd1 group by symbol having sum(bidsiz)>0 order by symbol """)
-    val frame = spark.sql("""select * from sd1""")
+    val frame = spark.sql("""select * from sd1 where val_char = '1'""")
 
     frame.printSchema()
 
@@ -60,7 +60,7 @@ object testDolphinDBReader2 {
 
 
 //    println(frame.select("date").take(1).take(1)(0).getDate(0).getYear)
-//    frame.persist()
+    frame.persist()
 //    val fa = frame.where($"date" >= "2007-08-02")
     println("==============frame===============")
 
@@ -77,7 +77,7 @@ object testDolphinDBReader2 {
 
 
 
-//    println(frame.collect().length)
+    println(frame.collect().length)
     println("==============frame===============")
 
 //    val fa = frame.filter($"date" > "2007-08-02")

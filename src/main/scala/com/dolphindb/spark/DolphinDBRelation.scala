@@ -9,14 +9,6 @@ import org.apache.spark.sql.{DataFrame, Row, SQLContext, SparkSession}
 import org.apache.spark.sql.sources.{BaseRelation, Filter, InsertableRelation, PrunedFilteredScan}
 import org.apache.spark.sql.types.StructType
 
-
-/**
-  * Instructions on how to partition the table among workers.
-  */
-//private[spark] case class DolphinDBPartitioningInfo(
-//            column: String,
-//            numPartitions: Int)
-
 private [spark] object DolphinDBRelation extends Logging {
 
   /**
