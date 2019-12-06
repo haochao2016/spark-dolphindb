@@ -89,15 +89,15 @@ case class DolphinDBPartitioner(option: DolphinDBOptions) extends Serializable {
           /**  i = 0 means the first level partition in DolphinDB   */
           if (i == 0) {
             /** if there is not dolphindb partition column in user sql, it will be load all dolphindb partition in spark partition */
-            var fliterFlag = false
+            var filterFlag = false
             if (partiFilters.length > 0) {
-              partiFilters.foreach(f => if(f.references(0).equalsIgnoreCase(partiCols(i))) fliterFlag = true)
+              partiFilters.foreach(f => if(f.references(0).equalsIgnoreCase(partiCols(i))) filterFlag = true)
             }
             /** There are partition filter in User-defined SQL   */
-            if (partiFilters.length != 0 && fliterFlag && getDolphinDBPartitionBySingleFilter(partiCols(i),
+            if (partiFilters.length != 0 && filterFlag && getDolphinDBPartitionBySingleFilter(partiCols(i),
               vecBuf.toArray, partiType(i),partiFilters.toArray)) {
               tmpPartiVal += ArrayBuffer[Array[String]](vecBuf.toArray)
-            } else if (partiFilters.length == 0 || (!fliterFlag)){
+            } else if (partiFilters.length == 0 || (!filterFlag)){
             /**  There are not partition filter in User-defined SQL */
               tmpPartiVal += ArrayBuffer[Array[String]](vecBuf.toArray)
             }
