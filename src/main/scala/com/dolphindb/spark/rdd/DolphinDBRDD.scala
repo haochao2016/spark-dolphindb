@@ -31,7 +31,7 @@ object DolphinDBRDD extends Logging {
   /**
     * DolphinDB table schema in Spark
     */
-  var schemaOrigin : StructType= null
+  var schemaOrigin : StructType = _
   /**
     *  originType contains All type of table ordering in DolphinDB
     */
@@ -429,12 +429,12 @@ private[spark] class DolphinDBRDD(
       logError(s"No Database ${options.dbPath}")
       throw new NoDataBaseException(s"No DataBase : ${options.dbPath}")
     }
-    val dbhandle = options.dbPath.substring(options.dbPath.lastIndexOf("/") +1) + options.table
-    conn.run(s"${dbhandle}=database('${options.dbPath}'); ${options.table}=${dbhandle}.loadTable('${options.table}')")
+    val dbHandle = options.dbPath.substring(options.dbPath.lastIndexOf("/") +1) + options.table
+    conn.run(s"${dbHandle}=database('${options.dbPath}'); ${options.table}=${dbHandle}.loadTable('${options.table}')")
 
     val myWhereClause = getWhereClause(part)
 
-    val sqlText = s"select  $columnList from ${options.table} ${myWhereClause} "
+    val sqlText = s"select $columnList from ${options.table} ${myWhereClause} "
 //    logInfo(s"SQL :   ${sqlText}")
     val dolphinDBTable = conn.run(sqlText).asInstanceOf[BasicTable]
 

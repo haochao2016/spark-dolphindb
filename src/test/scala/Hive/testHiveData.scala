@@ -1,6 +1,8 @@
 package Hive
 
 import org.apache.spark.sql.SparkSession
+import org.apache.spark.sql.functions._
+
 
 object testHiveData {
 
@@ -15,12 +17,12 @@ object testHiveData {
       //      .master("local[2]")
       .enableHiveSupport()
       .config("spark.sql.warehouse.dir", "hdfs://chao/hive/warehouse")
-      .getOrCreate();
+      .getOrCreate()
+    import spark.implicits._
 
 
     val frame = spark.sql("""select BIDSIZ ,SYMBOL ,date, time from TAQ where Symbol='A' and date = '20070816'""".stripMargin)
-
-
+    frame.select(variance('a))
 
     println("=============================================")
     frame.show()

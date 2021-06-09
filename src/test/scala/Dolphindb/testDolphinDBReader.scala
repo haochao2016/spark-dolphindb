@@ -15,6 +15,8 @@ object testDolphinDBReader {
       .master("local[2]")
       .getOrCreate()
 
+    import spark.implicits._
+
     val sd = spark.read.format("com.dolphindb.spark.DolphinDBProvider")
       .option("ip", "115.239.209.224")
       .option("port", 16961)
